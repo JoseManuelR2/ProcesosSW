@@ -2,8 +2,9 @@ name: CD (Cloud Run)
 
 # Despliegue continuo: cada cambio que llega a main se despliega automáticamente.
 #
-# El despliegue solo se ejecuta si el secreto GCP_SA_KEY está configurado en el
-# repositorio. Mientras no lo esté, el trabajo se omite (el workflow queda en
+# El despliegue solo se ejecuta si TODOS los secretos necesarios están
+# configurados en el repositorio (GCP_SA_KEY y las variables de entorno de la
+# aplicación). Mientras falte alguno, el trabajo se omite (el workflow queda en
 # verde) en lugar de fallar, para no bloquear el flujo de integración.
 on:
   push:
@@ -17,13 +18,23 @@ jobs:
     steps:
       - id: comprobar
         env:
-          CLAVE: ${{ secrets.GCP_SA_KEY }}
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+          ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
         run: |
-          if [ -n "$CLAVE" ]; then
-            echo "disponible=true" >> "$GITHUB_OUTPUT"
-          else
+          faltan=""
+          for variable in GCP_SA_KEY MONGODB_URI SESSION_SECRET ADMIN_EMAIL ADMIN_PASSWORD; do
+            if [ -z "${!variable}" ]; then
+              faltan="$faltan $variable"
+            fi
+          done
+          if [ -n "$faltan" ]; then
             echo "disponible=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::El secreto GCP_SA_KEY no está configurado; se omite el despliegue en Cloud Run."
+            echo "::warning::Faltan secretos:$faltan. Se omite el despliegue en Cloud Run."
+          else
+            echo "disponible=true" >> "$GITHUB_OUTPUT"
           fi
 
   deploy:
@@ -52,6 +63,12 @@ jobs:
           region: europe-west1
           source: ./
           flags: --allow-unauthenticated
+          env_vars: |
+            NODE_ENV=production
+            MONGODB_URI=${{ secrets.MONGODB_URI }}
+            SESSION_SECRET=${{ secrets.SESSION_SECRET }}
+            ADMIN_EMAIL=${{ secrets.ADMIN_EMAIL }}
+            ADMIN_PASSWORD=${{ secrets.ADMIN_PASSWORD }}
 
       - name: Mostrar la URL pública
         run: echo "Desplegado en ${{ steps.deploy.outputs.url }}"

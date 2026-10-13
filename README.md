@@ -203,6 +203,9 @@ A partir de ahí, cada push a `main` crea o actualiza el servicio `procesossw`
 en la región `europe-west1`, inyecta las variables de entorno desde los secretos
 y devuelve la URL pública en el resumen del workflow.
 
+> **URL pública (Hito 1 completo):** la aplicación está desplegada en
+> <https://procesossw-tctg2penfa-ew.a.run.app>.
+
 ## Estado de los hitos
 
 - **Hito 1 — Esqueleto y backend**
@@ -210,7 +213,7 @@ y devuelve la URL pública en el resumen del workflow.
   - [x] API REST que expone la lógica.
   - [x] CI (`ci.yml`) y CD (`deploy.yml`) incluidos en el repositorio.
   - [x] Flujo de ramas y pull requests (GitHub Flow) reflejado en el historial.
-  - [ ] Despliegue activo (a falta de configurar los secretos de GCP en el repositorio).
+  - [x] Despliegue activo en Cloud Run (URL pública en la sección de despliegue).
 - **Hito 2 — Frontend y sesión**
   - [x] Interfaz y capa de comunicación separadas.
   - [x] Registro e inicio de sesión locales con contraseña hasheada.

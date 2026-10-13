@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ProcesosSW</title>
+  <!-- Bootstrap 4 (CSS, CDN) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css">
+</head>
+<body>
+
+  <!-- Barra de navegación (se rellena dinámicamente según la sesión) -->
+  <nav id="barra" class="navbar navbar-expand-sm bg-dark navbar-dark"></nav>
+
+  <div class="container-fluid">
+    <div id="mensaje" class="alert alert-info d-none mt-3"></div>
+    <!-- Punto de inyección de los componentes de visualización -->
+    <div id="contenido"></div>
+  </div>
+
+  <!-- jQuery y Bootstrap JS (el bundle incluye Popper) -->
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
+
+  <!-- Capa de comunicación y capa de presentación (separadas) -->
+  <script src="./clienteRest.js"></script>
+  <script src="./controlWeb.js"></script>
+
+  <script>
+    cw = new ControlWeb();
+    rest = new ClienteRest(cw);
+    // Al cargar, comprueba si ya hay sesión (mantener sesión entre recargas).
+    cw.iniciar();
+  </script>
+</body>
+</html>

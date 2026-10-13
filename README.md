@@ -162,27 +162,55 @@ envían junto con la entrega (no se publican en el repositorio).
 
 ### Configuración del despliegue en Cloud Run (una sola vez)
 
-1. Crea un proyecto en Google Cloud y activa la facturación / créditos.
-2. Crea un repositorio en Artifact Registry (o deja que lo cree el primer deploy):
-   ```bash
-   gcloud artifacts repositories create procesossw --repository-format=docker --location=europe-west1
-   ```
-3. Crea una cuenta de servicio con permisos de Cloud Run, Artifact Registry y
-   Cloud Build, descarga su clave JSON y guárdala como secreto `GCP_SA_KEY` en
-   GitHub (Settings → Secrets and variables → Actions).
-4. Define las variables de entorno del servicio en Cloud Run (`MONGODB_URI`,
-   `SESSION_SECRET`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `NODE_ENV=production`).
-   Persisten entre despliegues.
-5. Haz push a `main`: el workflow `CD (Cloud Run)` desplegará y devolverá la URL
-   pública.
+El despliegue lo realiza el workflow `deploy.yml` en cada push a `main`. Solo
+necesita que existan estos **secretos** en el repositorio
+(Settings → Secrets and variables → Actions → New repository secret):
+
+| Secreto | Contenido |
+| --- | --- |
+| `GCP_SA_KEY` | Clave JSON de la cuenta de servicio de Google Cloud. |
+| `MONGODB_URI` | Cadena de conexión a MongoDB. |
+| `SESSION_SECRET` | Secreto para firmar la cookie de sesión. |
+| `ADMIN_EMAIL` | Email del administrador inicial. |
+| `ADMIN_PASSWORD` | Contraseña del administrador inicial. |
+
+Mientras falte alguno de ellos, el paso de despliegue se **omite** (el workflow
+queda en verde) y la aplicación no se publica.
+
+Preparación en Google Cloud (con `gcloud` autenticado y facturación activada):
+
+```bash
+PROYECTO=mi-proyecto-gcp
+gcloud config set project "$PROYECTO"
+gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com
+
+# Cuenta de servicio que usará GitHub Actions
+gcloud iam service-accounts create github-deploy --display-name="GitHub Actions"
+
+# Permisos necesarios para desplegar
+for ROL in roles/run.admin roles/artifactregistry.admin roles/cloudbuild.builds.editor roles/iam.serviceAccountUser; do
+  gcloud projects add-iam-policy-binding "$PROYECTO" \
+    --member="serviceAccount:github-deploy@$PROYECTO.iam.gserviceaccount.com" \
+    --role="$ROL"
+done
+
+# Clave JSON: su contenido se pega en el secreto GCP_SA_KEY
+gcloud iam service-accounts keys create clave.json \
+  --iam-account="github-deploy@$PROYECTO.iam.gserviceaccount.com"
+```
+
+A partir de ahí, cada push a `main` crea o actualiza el servicio `procesossw`
+en la región `europe-west1`, inyecta las variables de entorno desde los secretos
+y devuelve la URL pública en el resumen del workflow.
 
 ## Estado de los hitos
 
 - **Hito 1 — Esqueleto y backend**
   - [x] Capa lógica de gestión de usuarios (en memoria y en MongoDB) y pruebas unitarias.
   - [x] API REST que expone la lógica.
-  - [x] CI (`ci.yml`) y CD (`deploy.yml`) incluidos en el repositorio (falta cargar los secretos de GCP).
-  - [ ] Flujo de ramas y pull requests (a cargo del autor del repositorio).
+  - [x] CI (`ci.yml`) y CD (`deploy.yml`) incluidos en el repositorio.
+  - [x] Flujo de ramas y pull requests (GitHub Flow) reflejado en el historial.
+  - [ ] Despliegue activo (a falta de configurar los secretos de GCP en el repositorio).
 - **Hito 2 — Frontend y sesión**
   - [x] Interfaz y capa de comunicación separadas.
   - [x] Registro e inicio de sesión locales con contraseña hasheada.

@@ -1,12 +1,34 @@
 name: CD (Cloud Run)
 
 # Despliegue continuo: cada cambio que llega a main se despliega automáticamente.
+#
+# El despliegue solo se ejecuta si el secreto GCP_SA_KEY está configurado en el
+# repositorio. Mientras no lo esté, el trabajo se omite (el workflow queda en
+# verde) en lugar de fallar, para no bloquear el flujo de integración.
 on:
   push:
     branches: [ main ]
 
 jobs:
+  credenciales:
+    runs-on: ubuntu-latest
+    outputs:
+      disponible: ${{ steps.comprobar.outputs.disponible }}
+    steps:
+      - id: comprobar
+        env:
+          CLAVE: ${{ secrets.GCP_SA_KEY }}
+        run: |
+          if [ -n "$CLAVE" ]; then
+            echo "disponible=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "disponible=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::El secreto GCP_SA_KEY no está configurado; se omite el despliegue en Cloud Run."
+          fi
+
   deploy:
+    needs: credenciales
+    if: needs.credenciales.outputs.disponible == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read

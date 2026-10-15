@@ -79,6 +79,16 @@ function montarApi(app, modelo){
     app.delete("/api/usuario/:email", requiereSesion, async function(req, res){
         enviar(res, await modelo.eliminarUsuario(req.session.usuario, req.params.email));
     });
+
+    // --- Variante 4: bloqueo por intentos fallidos ---
+    // Ruta pública (no requiere sesión): solo lee la petición, llama a la
+    // capa lógica y devuelve su respuesta. Los errores de validación (fecha
+    // no válida, campo ausente o de tipo incorrecto) salen como 400 con
+    // {"error": "..."} a través de "enviar".
+    app.post("/api/prueba/bloqueo", function(req, res){
+        let { fallos, ahora } = req.body || {};
+        enviar(res, modelo.evaluarBloqueo(fallos, ahora));
+    });
 }
 
 module.exports = { montarApi, requiereSesion, requiereAdmin };

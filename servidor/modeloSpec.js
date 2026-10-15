@@ -1,4 +1,4 @@
-const { Modelo } = require("./modelo.js");
+const { Modelo, evaluarBloqueo } = require("./modelo.js");
 const { CadMemoria } = require("./cadMemoria.js");
 
 // Las pruebas unitarias de la capa lógica usan la CAD en memoria:
@@ -128,5 +128,85 @@ describe("Gestión de usuarios (capa lógica)", function(){
         let res = await modelo.autenticar("ana@test.com", "contrasena1");
         expect(res.error).toBeDefined();
         expect(res.codigo).toBe(401);
+    });
+});
+
+// Variante 4: bloqueo por intentos fallidos.
+// Prueban la función propia evaluarBloqueo de la capa lógica: es pura, no toca
+// la CAD y no usa el reloj del sistema (el instante actual llega como parámetro),
+// así que no necesitan base de datos ni conexión de red.
+describe("Variante 4: bloqueo por intentos fallidos (capa lógica)", function(){
+
+    const CINCO_FALLOS = [
+        "2026-03-02T10:00:00Z",
+        "2026-03-02T10:01:00Z",
+        "2026-03-02T10:02:00Z",
+        "2026-03-02T10:03:00Z",
+        "2026-03-02T10:04:00Z"
+    ];
+
+    it("variante4: bloquea la cuenta tras 5 fallos seguidos y fija el fin del bloqueo", function(){
+        let res = evaluarBloqueo(CINCO_FALLOS, "2026-03-02T10:10:00Z");
+        expect(res.error).toBeUndefined();
+        expect(res.bloqueado).toBeTrue();
+        expect(res.hasta).toBe("2026-03-02T10:19:00Z");  // 10:04 + 15 minutos
+    });
+
+    it("variante4: usa solo los 5 fallos más recientes aunque la lista venga desordenada", function(){
+        let res = evaluarBloqueo([
+            "2026-03-02T10:04:00Z",
+            "2026-03-02T08:00:00Z",     // antiguo: no cuenta
+            "2026-03-02T10:02:00Z",
+            "2026-03-02T06:30:00Z",     // antiguo: no cuenta
+            "2026-03-02T10:00:00Z",
+            "2026-03-02T10:03:00Z",
+            "2026-03-02T10:01:00Z"
+        ], "2026-03-02T10:10:00Z");
+        expect(res.bloqueado).toBeTrue();
+        expect(res.hasta).toBe("2026-03-02T10:19:00Z");
+    });
+
+    it("variante4: no bloquea si los 5 fallos se reparten en más de 15 minutos", function(){
+        let res = evaluarBloqueo([
+            "2026-03-02T10:00:00Z",
+            "2026-03-02T10:04:00Z",
+            "2026-03-02T10:08:00Z",
+            "2026-03-02T10:12:00Z",
+            "2026-03-02T10:16:00Z"
+        ], "2026-03-02T10:20:00Z");
+        expect(res.bloqueado).toBeFalse();
+        expect(res.hasta).toBeNull();
+    });
+
+    it("variante4: no bloquea cuando hay menos de 5 fallos", function(){
+        let res = evaluarBloqueo(CINCO_FALLOS.slice(0, 4), "2026-03-02T10:10:00Z");
+        expect(res.bloqueado).toBeFalse();
+        expect(res.hasta).toBeNull();
+    });
+
+    it("variante4: responde como no bloqueado cuando el bloqueo ya ha expirado", function(){
+        let res = evaluarBloqueo(CINCO_FALLOS, "2026-03-02T10:30:00Z");  // pasadas las 10:19
+        expect(res.bloqueado).toBeFalse();
+        expect(res.hasta).toBeNull();
+    });
+
+    it("variante4: rechaza una fecha no válida con error 400 (caso de error)", function(){
+        let res = evaluarBloqueo(["2026-03-02T10:00:00Z", "ayer", "2026-13-45T99:00:00Z"], "2026-03-02T10:10:00Z");
+        expect(res.error).toBeDefined();
+        expect(res.codigo).toBe(400);
+    });
+
+    it("variante4: rechaza datos ausentes o de tipo incorrecto con error 400 (caso de error)", function(){
+        let sinAhora = evaluarBloqueo(CINCO_FALLOS, undefined);
+        expect(sinAhora.error).toBeDefined();
+        expect(sinAhora.codigo).toBe(400);
+
+        let ahoraInvalida = evaluarBloqueo(CINCO_FALLOS, 1772455800000);
+        expect(ahoraInvalida.error).toBeDefined();
+        expect(ahoraInvalida.codigo).toBe(400);
+
+        let fallosNoLista = evaluarBloqueo("2026-03-02T10:00:00Z", "2026-03-02T10:10:00Z");
+        expect(fallosNoLista.error).toBeDefined();
+        expect(fallosNoLista.codigo).toBe(400);
     });
 });

@@ -33,6 +33,7 @@ classDiagram
         +listarUsuarios(solicitante)
         +usuarioActivo(solicitante, email)
         +eliminarUsuario(solicitante, email)
+        +evaluarBloqueo(fallos, ahora)
     }
     class Cad {
         <<interfaz>>
@@ -130,7 +131,8 @@ npm test
 Ejecuta las pruebas unitarias de la capa lógica con Jasmine. Usan la CAD en
 memoria, así que **no necesitan base de datos ni conexión de red**. Incluyen
 casos de error (email duplicado, cuenta pendiente, contraseña incorrecta, un
-usuario normal intentando eliminar a otro, etc.).
+usuario normal intentando eliminar a otro, etc.). Las pruebas de la variante 4
+(bloqueo por intentos fallidos) llevan la etiqueta `variante4` en el nombre.
 
 ## API REST
 
@@ -144,6 +146,28 @@ usuario normal intentando eliminar a otro, etc.).
 | GET | `/api/usuarios` | administrador | Lista con email, rol y estado. |
 | GET | `/api/usuarioActivo/:email` | administrador | `{"activo":true|false}`. |
 | DELETE | `/api/usuario/:email` | admin o uno mismo | Elimina la cuenta. |
+| POST | `/api/prueba/bloqueo` | público | Bloqueo por intentos fallidos (variante 4). |
+
+### Variante 4: bloqueo por intentos fallidos
+
+`POST /api/prueba/bloqueo` (público, no requiere sesión):
+
+```json
+{"fallos": ["2026-03-02T10:00:00Z", "..."], "ahora": "2026-03-02T10:10:00Z"}
+```
+
+Devuelve `200 {"bloqueado": true, "hasta": "2026-03-02T10:19:00Z"}` cuando los
+**5 fallos más recientes** (la lista puede venir desordenada) ocurren como mucho
+en 15 minutos: entonces la cuenta queda bloqueada hasta 15 minutos después del
+último fallo. Con menos de 5 fallos, con los 5 repartidos en más de 15 minutos o
+cuando el bloqueo ya expiró, responde `{"bloqueado": false, "hasta": null}`.
+El instante actual lo aporta la petición (`ahora`), no el reloj del sistema, lo
+que hace la regla comprobable; una fecha no válida o un campo ausente o de tipo
+incorrecto responde `400 {"error": "..."}`.
+
+La regla vive en la capa lógica como la función pura `evaluarBloqueo(fallos, ahora)`
+de `servidor/modelo.js` (no accede a la base de datos); la ruta solo lee la
+petición, llama a la lógica y devuelve la respuesta.
 
 ## Acceso como administrador
 

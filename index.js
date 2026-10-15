@@ -61,6 +61,15 @@ async function main(){
     // API REST (capa de presentación del backend).
     api.montarApi(app, modelo);
 
+    // Cuerpo JSON mal formado o demasiado grande: el contrato general pide
+    // responder 400 con {"error": "..."} en lugar de un 500 genérico.
+    app.use(function(err, req, res, next){
+        if (err && (err.type === "entity.parse.failed" || err.type === "entity.too.large")){
+            return res.status(400).send({ error: "El cuerpo de la petición no es JSON válido" });
+        }
+        next(err);
+    });
+
     // Manejo de errores no controlados.
     app.use(function(err, req, res, next){
         console.error(err);

@@ -16,6 +16,7 @@ residen en el servidor; el cliente solo se comunica mediante una API REST.
 | bcryptjs | Hash de contraseñas | Nunca se guarda la contraseña en claro; bcryptjs es puro JavaScript (sin compilación nativa). |
 | Bootstrap 4 + jQuery | Interfaz de cliente | Interfaz responsive y llamadas AJAX sencillas; el foco del proyecto es la arquitectura, no el diseño. |
 | Jasmine | Pruebas unitarias | Framework de pruebas automatizadas; las pruebas de la capa lógica no necesitan base de datos. |
+| Socket.IO | WebSockets (sprint 2) | Comunicación en tiempo real para el juego Maze Duel: partidas, programación y ejecución. |
 | GitHub Actions | CI/CD | Integración y despliegue continuos documentados y versionados en el propio repositorio. |
 | Google Cloud Run | Despliegue | Capa gratuita y URL pública; el backend escucha en `PORT`. |
 
@@ -87,12 +88,15 @@ servidor/
   cad.js                       Selección de la CAD (Mongo o memoria)
   cadMongo.js                  CAD contra MongoDB (Mongoose)
   cadMemoria.js                CAD en memoria (pruebas y desarrollo)
+  juego.js                     Lógica del juego Maze Duel (laberinto y partidas)
   modeloSpec.js                Pruebas unitarias de la capa lógica
+  juegoSpec.js                 Pruebas unitarias de la lógica del juego
   confirmacionSpec.js          Pruebas de confirmación por correo y de OAuth
 cliente/
   index.html                   Página única (SPA)
   clienteRest.js               Capa de comunicación (AJAX)
   controlWeb.js                Capa de presentación (GUI)
+  juego.js                     Capa de presentación del juego (laberinto y editor)
 .github/workflows/            CI (ci.yml) y CD (deploy.yml)
 spec/support/jasmine.json      Configuración de Jasmine
 .env.example                   Nombres de las variables de entorno (sin valores)
@@ -274,6 +278,11 @@ y devuelve la URL pública en el resumen del workflow.
   - [x] Inicio de sesión con Google (OAuth 2.0 con Passport.js).
   - [x] Confirmación de cuenta por correo electrónico (enlace con token de un solo uso y caducidad de 24 h).
   - [x] Manejo de errores con mensajes claros al usuario (correo fallido, enlace caducado, cuenta pendiente, etc.).
+- **Hito 5 — Juego en tiempo real (sprint 2)**
+  - [x] Comunicación por WebSockets (Socket.IO) para partidas en tiempo real.
+  - [x] Juego Maze Duel: los jugadores programan movimientos y compiten por resolver un laberinto.
+  - [x] El administrador puede ver y cancelar todas las partidas en curso.
+  - [x] Pruebas unitarias de la lógica del juego (19 specs).
 
 ## Configurar Google y el correo
 

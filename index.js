@@ -5,9 +5,11 @@ require("dotenv").config();
 
 const crypto = require("crypto");
 const path = require("path");
+const http = require("http");
 const express = require("express");
 const session = require("express-session");
 const { MongoStore } = require("connect-mongo");
+const { Server } = require("socket.io");
 
 const cadFactory = require("./servidor/cad.js");
 const { Modelo } = require("./servidor/modelo.js");
@@ -15,6 +17,7 @@ const { Log } = require("./servidor/log.js");
 const { crearCorreo } = require("./servidor/correo.js");
 const { montarOAuth } = require("./servidor/oauth.js");
 const api = require("./servidor/api.js");
+const { GestorPartidas } = require("./servidor/juego.js");
 
 async function main(){
     const PORT = process.env.PORT || 3000;
@@ -46,6 +49,9 @@ async function main(){
         baseUrl: BASE_URL
     });
     const modelo = new Modelo(cad, log, correo);
+
+    // Gestor de partidas del sprint 2.
+    const gestorPartidas = new GestorPartidas();
 
     // Semilla del primer administrador.
     if (process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD){
@@ -103,7 +109,95 @@ async function main(){
         res.status(500).send({ error: "Error interno del servidor" });
     });
 
-    app.listen(PORT, function(){
+    // Servidor HTTP + Socket.IO para el juego en tiempo real.
+    const server = http.createServer(app);
+    const io = new Server(server);
+
+    // Mapa de socket.id -> email (para saber quién juega).
+    const socketEmail = {};
+
+    io.on("connection", function(socket){
+        // El cliente envía su email al conectarse.
+        socket.on("identificar", function(email){
+            socketEmail[socket.id] = email;
+        });
+
+        // Crear partida.
+        socket.on("crearPartida", function(){
+            let email = socketEmail[socket.id];
+            if (!email){ return; }
+            let partida = gestorPartidas.crear(email);
+            socket.join(partida.id);
+            socket.emit("partidaCreada", { id: partida.id, partida: serializar(partida) });
+            io.emit("listaPartidas", gestorPartidas.listar());
+        });
+
+        // Unirse a partida.
+        socket.on("unirsePartida", function(id){
+            let email = socketEmail[socket.id];
+            if (!email){ return; }
+            let partida = gestorPartidas.obtener(id);
+            if (!partida){ socket.emit("error", "Partida no encontrada"); return; }
+            let res = partida.agregarJugador(email);
+            if (res.error){ socket.emit("error", res.error); return; }
+            socket.join(id);
+            io.to(id).emit("partidaActualizada", serializar(partida));
+            io.emit("listaPartidas", gestorPartidas.listar());
+        });
+
+        // Programar movimientos.
+        socket.on("programar", function(data){
+            let email = socketEmail[socket.id];
+            if (!email){ return; }
+            let partida = gestorPartidas.obtener(data.id);
+            if (!partida){ socket.emit("error", "Partida no encontrada"); return; }
+            let res = partida.programar(email, data.comandos);
+            if (res.error){ socket.emit("error", res.error); return; }
+            socket.emit("programado", { ok: true });
+            if (partida.ambosProgramados()){
+                io.to(data.id).emit("ambosListos", { id: data.id });
+            }
+        });
+
+        // Ejecutar la partida.
+        socket.on("ejecutar", function(id){
+            let partida = gestorPartidas.obtener(id);
+            if (!partida){ socket.emit("error", "Partida no encontrada"); return; }
+            let resultado = partida.ejecutar();
+            io.to(id).emit("resultado", resultado);
+            io.emit("listaPartidas", gestorPartidas.listar());
+        });
+
+        // Cancelar partida (solo admin).
+        socket.on("cancelarPartida", function(id){
+            let email = socketEmail[socket.id];
+            if (email !== process.env.ADMIN_EMAIL){ return; }
+            gestorPartidas.cancelar(id);
+            io.emit("listaPartidas", gestorPartidas.listar());
+            io.to(id).emit("partidaCancelada", { id: id });
+        });
+
+        // Solicitar lista de partidas.
+        socket.on("solicitarLista", function(){
+            socket.emit("listaPartidas", gestorPartidas.listar());
+        });
+
+        socket.on("disconnect", function(){
+            delete socketEmail[socket.id];
+        });
+    });
+
+    function serializar(partida){
+        return {
+            id: partida.id,
+            creador: partida.creador,
+            jugadores: partida.jugadores.slice(),
+            estado: partida.estado,
+            resultado: partida.resultado
+        };
+    }
+
+    server.listen(PORT, function(){
         console.log("App está escuchando en el puerto " + PORT);
         console.log("Ctrl+C para salir");
     });

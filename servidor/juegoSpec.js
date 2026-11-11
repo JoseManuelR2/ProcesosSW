@@ -1,4 +1,4 @@
-const { GestorPartidas, MAZE, STARTS, EXIT, esPared, distancia } = require("./juego.js");
+const { GestorPartidas, MAZE, STARTS, EXIT, esPared, distancia, parsearCodigo } = require("./juego.js");
 
 describe("Maze Duel (capa lógica)", function(){
     let gestor;
@@ -38,7 +38,7 @@ describe("Maze Duel (capa lógica)", function(){
     it("programa comandos válidos", function(){
         let p = gestor.crear("ana@test.com");
         p.agregarJugador("luis@test.com");
-        let res = p.programar("ana@test.com", ["right", "down", "right"]);
+        let res = p.programar("ana@test.com", "mv right\nmv down\nmv right");
         expect(res.error).toBeUndefined();
         expect(p.programas["ana@test.com"]).toEqual(["right", "down", "right"]);
     });
@@ -46,7 +46,7 @@ describe("Maze Duel (capa lógica)", function(){
     it("rechaza comandos inválidos", function(){
         let p = gestor.crear("ana@test.com");
         p.agregarJugador("luis@test.com");
-        let res = p.programar("ana@test.com", ["right", "diagonal"]);
+        let res = p.programar("ana@test.com", "mv right\nmv diagonal");
         expect(res.error).toBeDefined();
     });
 
@@ -54,15 +54,15 @@ describe("Maze Duel (capa lógica)", function(){
         let p = gestor.crear("ana@test.com");
         p.agregarJugador("luis@test.com");
         let cmds = [];
-        for (let i = 0; i < 51; i++){ cmds.push("right"); }
-        let res = p.programar("ana@test.com", cmds);
+        for (let i = 0; i < 51; i++){ cmds.push("mv right"); }
+        let res = p.programar("ana@test.com", cmds.join("\n"));
         expect(res.error).toBeDefined();
     });
 
     it("un jugador que no está en la partida no puede programar", function(){
         let p = gestor.crear("ana@test.com");
         p.agregarJugador("luis@test.com");
-        let res = p.programar("pedro@test.com", ["right"]);
+        let res = p.programar("pedro@test.com", "mv right");
         expect(res.error).toBeDefined();
     });
 
@@ -70,8 +70,8 @@ describe("Maze Duel (capa lógica)", function(){
         let p = gestor.crear("ana@test.com");
         p.agregarJugador("luis@test.com");
         // Ana: camino a la salida (8,1) desde (1,1)
-        p.programar("ana@test.com", ["down","down","down","down","right","right","right","down","down","left","left","left","down"]);
-        p.programar("luis@test.com", ["right","right","right","right","right","right","right"]);
+        p.programar("ana@test.com", "mv down\nmv down\nmv down\nmv down\nmv right\nmv right\nmv right\nmv down\nmv down\nmv left\nmv left\nmv left\nmv down");
+        p.programar("luis@test.com", "mv right\nmv right\nmv right\nmv right\nmv right\nmv right\nmv right");
         let res = p.ejecutar();
         expect(res.ganador).toBe("ana@test.com");
         expect(res.razon).toBe("llegó a la salida");
@@ -80,8 +80,8 @@ describe("Maze Duel (capa lógica)", function(){
     it("el que llega con menos comandos gana si ambos llegan", function(){
         let p = gestor.crear("ana@test.com");
         p.agregarJugador("luis@test.com");
-        p.programar("ana@test.com", ["down","down","down","down","right","right","right","down","down","left","left","left","down"]);
-        p.programar("luis@test.com", ["down","down","down","down","right","right","right","down","down","left","left","left","down","right"]);
+        p.programar("ana@test.com", "mv down\nmv down\nmv down\nmv down\nmv right\nmv right\nmv right\nmv down\nmv down\nmv left\nmv left\nmv left\nmv down");
+        p.programar("luis@test.com", "mv down\nmv down\nmv down\nmv down\nmv right\nmv right\nmv right\nmv down\nmv down\nmv left\nmv left\nmv left\nmv down\nmv right");
         let res = p.ejecutar();
         expect(res.ganador).toBe("ana@test.com");
     });
@@ -89,8 +89,8 @@ describe("Maze Duel (capa lógica)", function(){
     it("si ninguno llega, gana el que esté más cerca", function(){
         let p = gestor.crear("ana@test.com");
         p.agregarJugador("luis@test.com");
-        p.programar("ana@test.com", ["right","right"]);
-        p.programar("luis@test.com", ["down","down","down","down"]);
+        p.programar("ana@test.com", "mv right\nmv right");
+        p.programar("luis@test.com", "mv down\nmv down\nmv down\nmv down");
         let res = p.ejecutar();
         expect(res.ganador).toBeDefined();
         expect(res.razon).toBe("más cerca de la salida");
@@ -107,8 +107,8 @@ describe("Maze Duel (capa lógica)", function(){
         let p = gestor.crear("ana@test.com");
         p.agregarJugador("luis@test.com");
         // Intentar atravesar una pared.
-        p.programar("ana@test.com", ["up"]); // (1,1) -> (0,1) que es pared
-        p.programar("luis@test.com", ["down","down"]);
+        p.programar("ana@test.com", "mv up"); // (1,1) -> (0,1) que es pared
+        p.programar("luis@test.com", "mv down\nmv down");
         let res = p.ejecutar();
         // Ana no se mueve porque (0,1) es pared.
         expect(res.posicionesFinales["ana@test.com"]).toEqual([1, 1]);
@@ -146,5 +146,42 @@ describe("Maze Duel (capa lógica)", function(){
     it("distancia Manhattan funciona", function(){
         expect(distancia([1,1], [8,1])).toBe(7);
         expect(distancia([1,1], [1,1])).toBe(0);
+    });
+});
+
+describe("parsearCodigo (mini lenguaje)", function(){
+    it("parsea mv simple", function(){
+        expect(parsearCodigo("mv right\nmv down")).toEqual(["right", "down"]);
+    });
+
+    it("parsea repeat", function(){
+        expect(parsearCodigo("repeat 3\n  mv right\nend")).toEqual(["right", "right", "right"]);
+    });
+
+    it("parsea for como alias de repeat", function(){
+        expect(parsearCodigo("for 2\n  mv up\nend")).toEqual(["up", "up"]);
+    });
+
+    it("parsea while true", function(){
+        let r = parsearCodigo("while true\n  mv right\nend");
+        expect(r.length).toBeGreaterThan(0);
+        expect(r.every(function(c){ return c === "right"; })).toBe(true);
+    });
+
+    it("ignora comentarios", function(){
+        expect(parsearCodigo("# comentario\nmv left")).toEqual(["left"]);
+    });
+
+    it("rechaza comando inválido", function(){
+        expect(parsearCodigo("mv diagonal")).toBeNull();
+    });
+
+    it("rechaza línea no reconocida", function(){
+        expect(parsearCodigo("saltar")).toBeNull();
+    });
+
+    it("bloques anidados", function(){
+        let r = parsearCodigo("repeat 2\n  repeat 2\n    mv right\n  end\nend");
+        expect(r).toEqual(["right","right","right","right"]);
     });
 });

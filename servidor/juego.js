@@ -47,6 +47,73 @@ function distancia(a, b){
     return Math.abs(a[0]-b[0]) + Math.abs(a[1]-b[1]);
 }
 
+function parsearCodigo(codigo){
+    if (typeof codigo !== "string"){ return null; }
+    let lineas = codigo.split("\n").map(function(l){ return l.trim(); }).filter(function(l){ return l && !l.startsWith("#"); });
+    let resultado = [];
+
+    function parsearBloque(inicio, fin){
+        let res = [];
+        let j = inicio;
+        while (j < fin){
+            let linea = lineas[j];
+            if (linea.startsWith("repeat ") || linea.startsWith("for ")){
+                let partes = linea.split(/\s+/);
+                let n = parseInt(partes[1]);
+                if (isNaN(n) || n < 1){ n = 1; }
+                if (n > 10){ n = 10; }
+                let depth = 1;
+                let k = j + 1;
+                while (k < fin && depth > 0){
+                    if (lineas[k].startsWith("repeat ") || lineas[k].startsWith("for ") || lineas[k].startsWith("while ")){ depth++; }
+                    else if (lineas[k] === "end"){ depth--; }
+                    if (depth === 0){ break; }
+                    k++;
+                }
+                let bloque = parsearBloque(j + 1, k);
+                for (let r = 0; r < n; r++){
+                    if (res.length >= 50){ break; }
+                    res = res.concat(bloque);
+                    if (res.length > 50){ res = res.slice(0, 50); }
+                }
+                j = k + 1;
+            } else if (linea.startsWith("while ")){
+                let depth = 1;
+                let k = j + 1;
+                while (k < fin && depth > 0){
+                    if (lineas[k].startsWith("repeat ") || lineas[k].startsWith("for ") || lineas[k].startsWith("while ")){ depth++; }
+                    else if (lineas[k] === "end"){ depth--; }
+                    if (depth === 0){ break; }
+                    k++;
+                }
+                let bloque = parsearBloque(j + 1, k);
+                let limite = 50 - res.length;
+                for (let r = 0; r < limite; r++){
+                    res = res.concat(bloque);
+                    if (res.length >= 50){ break; }
+                }
+                j = k + 1;
+            } else if (linea === "end"){
+                j++;
+            } else if (linea.startsWith("mv ")){
+                let dir = linea.split(/\s+/)[1];
+                if (DIRECTIONS[dir]){
+                    res.push(dir);
+                } else {
+                    return null;
+                }
+                j++;
+            } else {
+                return null;
+            }
+        }
+        return res;
+    }
+
+    let flat = parsearBloque(0, lineas.length);
+    return flat;
+}
+
 // Una partida.
 function Partida(id, creador){
     this.id = id;
@@ -73,23 +140,22 @@ Partida.prototype.agregarJugador = function(email){
     return { ok: true };
 };
 
-Partida.prototype.programar = function(email, comandos){
+Partida.prototype.programar = function(email, codigo){
     if (this.jugadores.indexOf(email) === -1){
         return { error: "No estás en esta partida" };
     }
-    if (!Array.isArray(comandos)){
-        return { error: "Los comandos deben ser una lista" };
+    let comandos = parsearCodigo(codigo);
+    if (comandos === null){
+        return { error: "El código no es válido" };
     }
-    for (let i = 0; i < comandos.length; i++){
-        if (!DIRECTIONS[comandos[i]]){
-            return { error: "Comando no válido: " + comandos[i] };
-        }
+    if (comandos.length === 0){
+        return { error: "El programa no contiene movimientos válidos" };
     }
     if (comandos.length > this.maxPasos){
         return { error: "Máximo " + this.maxPasos + " comandos" };
     }
     this.programas[email] = comandos.slice();
-    return { ok: true };
+    return { ok: true, comandos: comandos.slice() };
 };
 
 Partida.prototype.ambosProgramados = function(){
@@ -249,5 +315,6 @@ module.exports = {
     EXIT,
     DIRECTIONS,
     esPared,
-    distancia
+    distancia,
+    parsearCodigo
 };

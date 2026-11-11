@@ -155,11 +155,14 @@ async function main(){
             if (!partida){ socket.emit("error", "Partida no encontrada"); return; }
             let res = partida.programar(email, data.comandos);
             if (res.error){ socket.emit("error", res.error); return; }
-            socket.emit("programado", { ok: true });
+            socket.emit("programado", { ok: true, comandos: res.comandos });
             console.log("Programado por " + email + " en " + data.id + ". Ambos: " + partida.ambosProgramados());
             if (partida.ambosProgramados()){
-                io.to(data.id).emit("ambosListos", { id: data.id });
-                console.log("ambosListos emitido a " + data.id);
+                // Ejecutar automáticamente cuando ambos están listos.
+                let resultado = partida.ejecutar();
+                io.to(data.id).emit("resultado", resultado);
+                io.emit("listaPartidas", gestorPartidas.listar());
+                console.log("Auto-ejecutado " + data.id);
             }
         });
 

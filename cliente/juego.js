@@ -1,5 +1,5 @@
 // Capa de presentación del juego "Maze Duel" (sprint 2).
-// Renderiza el laberinto, el editor de comandos y la lista de partidas.
+// Renderiza el laberinto, el editor de código y la lista de partidas.
 // Se comunica con el servidor por Socket.IO.
 
 const MAZE = [
@@ -17,13 +17,10 @@ const MAZE = [
 
 const EXIT = [8, 1];
 
-const DIR_ARROWS = { up: "↑", down: "↓", left: "←", right: "→" };
-
 function JuegoWeb(cw, socket){
     this.cw = cw;
     this.socket = socket;
     this.partidaActual = null;
-    this.programa = [];
     this.esAdmin = false;
     this.usuario = null;
 }
@@ -56,6 +53,7 @@ JuegoWeb.prototype.mostrarLobby = function(){
     let self = this;
     let cadena = '<div class="card p-4 mt-3"><h4>Maze Duel</h4>';
     cadena += '<p class="text-muted">Programa una secuencia de movimientos y compite contra otro jugador. El primero en llegar a la salida gana.</p>';
+    cadena += '<p class="small text-muted">Comandos: <code>mv up/down/left/right</code>, <code>repeat N ... end</code>, <code>for N ... end</code>, <code>while true ... end</code>. Usa <code>#</code> para comentarios.</p>';
     cadena += '<button id="btnCrearPartida" class="btn btn-primary mr-2">Crear partida</button>';
     cadena += '<button id="btnRefrescar" class="btn btn-secondary">Refrescar lista</button>';
     cadena += '<div id="listaPartidas" class="mt-3"></div>';
@@ -99,63 +97,50 @@ JuegoWeb.prototype.mostrarEditor = function(partida){
     cadena += '<p>Jugadores: ' + partida.jugadores.join(" vs ") + '</p>';
     cadena += '<div class="row"><div class="col-md-6">';
     cadena += this.renderizarLaberinto(null, null);
+    cadena += '<p class="text-muted mt-2"><small>Leyenda: azul = jugador 1, rojo = jugador 2, verde = salida</small></p>';
     cadena += '</div><div class="col-md-6">';
-    cadena += '<h5>Programa tus movimientos</h5>';
-    cadena += '<div class="btn-group mb-2">';
-    cadena += '<button class="btn btn-outline-secondary btn-cmd" data-cmd="up">↑</button>';
-    cadena += '<button class="btn btn-outline-secondary btn-cmd" data-cmd="down">↓</button>';
-    cadena += '<button class="btn btn-outline-secondary btn-cmd" data-cmd="left">←</button>';
-    cadena += '<button class="btn btn-outline-secondary btn-cmd" data-cmd="right">→</button>';
-    cadena += '</div>';
-    cadena += '<div id="programaLista" class="border p-2 mb-2" style="min-height:40px;"></div>';
-    cadena += '<button id="btnBorrarUltimo" class="btn btn-warning btn-sm mr-1">Borrar último</button>';
-    cadena += '<button id="btnLimpiar" class="btn btn-danger btn-sm mr-1">Limpiar</button>';
+    cadena += '<h5>Escribe tu programa</h5>';
+    cadena += '<p class="text-muted small">Comandos: <code>mv up/down/left/right</code>, <code>repeat N ... end</code>, <code>for N ... end</code>, <code>while true ... end</code>. Usa <code>#</code> para comentarios.</p>';
+    cadena += '<textarea id="codigoEditor" class="form-control" rows="10" style="font-family:monospace;" placeholder="mv right\nmv down\nrepeat 3\n  mv right\nend"></textarea>';
+    cadena += '<div class="mt-2">';
     cadena += '<button id="btnEnviar" class="btn btn-success btn-sm">Enviar programa</button>';
-    cadena += '<button id="btnEjecutar" class="btn btn-primary btn-sm ml-1" style="display:none;">Ejecutar</button>';
+    cadena += '<button id="btnLimpiar" class="btn btn-danger btn-sm ml-1">Limpiar</button>';
+    cadena += '</div>';
     cadena += '<p id="estadoPrograma" class="mt-2 text-muted"></p>';
     cadena += '</div></div></div>';
     $("#contenido").html(cadena);
 
-    $(".btn-cmd").on("click", function(){
-        let cmd = $(this).data("cmd");
-        self.programa.push(cmd);
-        self.actualizarPrograma();
-    });
-    $("#btnBorrarUltimo").on("click", function(){
-        self.programa.pop();
-        self.actualizarPrograma();
-    });
     $("#btnLimpiar").on("click", function(){
-        self.programa = [];
-        self.actualizarPrograma();
+        $("#codigoEditor").val("");
     });
+
     $("#btnEnviar").on("click", function(){
-        self.socket.emit("programar", { id: partida.id, comandos: self.programa.slice() });
+        let codigo = $("#codigoEditor").val();
+        if (!self.usuario){
+            self.cw.mostrarMensaje("Debes iniciar sesión para enviar un programa", "warning");
+            return;
+        }
+        if (!self.socket.connected){
+            self.cw.mostrarMensaje("Conectando...", "info");
+            self.socket.connect();
+        }
+        self.socket.emit("identificar", self.usuario.email);
+        self.socket.emit("programar", { id: partida.id, codigo: codigo });
     });
-    $("#btnEjecutar").on("click", function(){
-        self.socket.emit("ejecutar", partida.id);
-    });
-
-    this.actualizarPrograma();
-};
-
-JuegoWeb.prototype.actualizarPrograma = function(){
-    let html = this.programa.map(function(c){ return DIR_ARROWS[c]; }).join(" ");
-    $("#programaLista").html(html || '<span class="text-muted">Sin comandos</span>');
 };
 
 JuegoWeb.prototype.mostrarResultado = function(resultado){
     let self = this;
     let cadena = '<div class="card p-4 mt-3"><h4>Resultado</h4>';
     if (resultado.ganador){
-        cadena += '<p class="text-success font-weight-bold">Ganador: ' + resultado.ganador + '</p>';
-        cadena += '<p>Motivo: ' + resultado.razon + '</p>';
+        cadena += '<p class="text-success font-weight-bold">Ganador: ' + this.escapar(resultado.ganador) + '</p>';
+        cadena += '<p>Motivo: ' + this.escapar(resultado.razon) + '</p>';
     } else {
         cadena += '<p class="text-warning">Empate</p>';
     }
     cadena += '<p>Comandos usados:</p><ul>';
     for (let email in resultado.comandos){
-        cadena += '<li>' + email + ': ' + resultado.comandos[email] + '</li>';
+        cadena += '<li>' + this.escapar(email) + ': ' + resultado.comandos[email] + '</li>';
     }
     cadena += '</ul>';
     cadena += this.renderizarLaberinto(
@@ -170,9 +155,9 @@ JuegoWeb.prototype.mostrarResultado = function(resultado){
 
 JuegoWeb.prototype.actualizarListaPartidas = function(lista){
     let self = this;
-    if (!self.usuario){ 
+    if (!self.usuario){
         console.log("actualizarListaPartidas: usuario no identificado");
-        return; 
+        return;
     }
     let html = '<table class="table table-sm"><thead><tr><th>ID</th><th>Creador</th><th>Jugadores</th><th>Estado</th><th></th></tr></thead><tbody>';
     if (!lista || lista.length === 0){
@@ -205,9 +190,13 @@ JuegoWeb.prototype.actualizarListaPartidas = function(lista){
     $(".btn-cancelar").on("click", function(){ self.socket.emit("cancelarPartida", $(this).data("id")); });
 };
 
-// Configurar los listeners de Socket.IO.
+JuegoWeb.prototype.escapar = function(texto){
+    return String(texto).replace(/[&<>"']/g, function(c){
+        return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+};
+
 function configurarSocket(juego){
-    // Re-identificar al reconectar.
     juego.socket.on("connect", function(){
         if (juego.usuario){
             juego.socket.emit("identificar", juego.usuario.email);
@@ -223,10 +212,6 @@ function configurarSocket(juego){
         if (partida.estado === "programando" && partida.jugadores.indexOf(juego.usuario.email) !== -1){
             juego.mostrarEditor(partida);
         }
-    });
-    juego.socket.on("ambosListos", function(data){
-        juego.cw.mostrarMensaje("Ambos jugadores listos. Pulsa Ejecutar.", "info");
-        $("#btnEjecutar").show();
     });
     juego.socket.on("resultado", function(resultado){
         juego.mostrarResultado(resultado);

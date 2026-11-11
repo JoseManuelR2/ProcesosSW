@@ -23,9 +23,15 @@ jobs:
           SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
           ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          MAIL_FROM: ${{ secrets.MAIL_FROM }}
         run: |
           faltan=""
-          for variable in GCP_SA_KEY MONGODB_URI SESSION_SECRET ADMIN_EMAIL ADMIN_PASSWORD; do
+          for variable in GCP_SA_KEY MONGODB_URI SESSION_SECRET ADMIN_EMAIL ADMIN_PASSWORD GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET SMTP_HOST SMTP_USER SMTP_PASS MAIL_FROM; do
             if [ -z "${!variable}" ]; then
               faltan="$faltan $variable"
             fi
@@ -69,6 +75,19 @@ jobs:
             SESSION_SECRET=${{ secrets.SESSION_SECRET }}
             ADMIN_EMAIL=${{ secrets.ADMIN_EMAIL }}
             ADMIN_PASSWORD=${{ secrets.ADMIN_PASSWORD }}
+            GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}
+            GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}
+            SMTP_HOST=${{ secrets.SMTP_HOST }}
+            SMTP_USER=${{ secrets.SMTP_USER }}
+            SMTP_PASS=${{ secrets.SMTP_PASS }}
+            MAIL_FROM=${{ secrets.MAIL_FROM }}
+
+      # La URL pública la asigna Cloud Run al desplegar; se guarda como BASE_URL
+      # para construir los enlaces del correo y la URL de retorno de Google.
+      - name: Fijar BASE_URL con la URL pública
+        run: |
+          gcloud run services update procesossw --region europe-west1 \
+            --update-env-vars BASE_URL=${{ steps.deploy.outputs.url }}
 
       - name: Mostrar la URL pública
         run: echo "Desplegado en ${{ steps.deploy.outputs.url }}"

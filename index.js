@@ -3,6 +3,7 @@
 // el primer administrador.
 require("dotenv").config();
 
+const crypto = require("crypto");
 const path = require("path");
 const express = require("express");
 const session = require("express-session");
@@ -11,10 +12,21 @@ const { MongoStore } = require("connect-mongo");
 const cadFactory = require("./servidor/cad.js");
 const { Modelo } = require("./servidor/modelo.js");
 const { Log } = require("./servidor/log.js");
+const { crearCorreo } = require("./servidor/correo.js");
+const { montarOAuth } = require("./servidor/oauth.js");
 const api = require("./servidor/api.js");
 
 async function main(){
     const PORT = process.env.PORT || 3000;
+    const BASE_URL = process.env.BASE_URL || ("http://localhost:" + PORT);
+    const EN_PRODUCCION = process.env.NODE_ENV === "production";
+
+    if (EN_PRODUCCION && !process.env.SESSION_SECRET){
+        throw new Error("Falta la variable SESSION_SECRET en producción");
+    }
+    if (EN_PRODUCCION && !process.env.SMTP_HOST){
+        throw new Error("Falta la configuración de correo (SMTP_HOST) en producción");
+    }
 
     // Capa de acceso a datos.
     const cad = cadFactory.crearCad(process.env.MONGODB_URI);
@@ -23,9 +35,17 @@ async function main(){
         console.log("Conectado a MongoDB");
     }
 
-    // Capa lógica.
+    // Capa lógica (con el servicio de correo inyectado).
     const log = new Log(cad);
-    const modelo = new Modelo(cad, log);
+    const correo = crearCorreo({
+        host: process.env.SMTP_HOST,
+        port: Number(process.env.SMTP_PORT || 587),
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+        from: process.env.MAIL_FROM,
+        baseUrl: BASE_URL
+    });
+    const modelo = new Modelo(cad, log, correo);
 
     // Semilla del primer administrador.
     if (process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD){
@@ -40,8 +60,10 @@ async function main(){
     app.use(express.json());
 
     // Sesión. Con MongoDB se persiste en el almacén; sin él, en memoria.
+    // En local, si no hay SESSION_SECRET se genera uno aleatorio al arrancar
+    // (las sesiones no sobreviven a un reinicio, pero no hay ningún secreto en el código).
     let opcionesSesion = {
-        secret: process.env.SESSION_SECRET || "secreto-de-desarrollo",
+        secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex"),
         resave: false,
         saveUninitialized: false,
         cookie: {
@@ -58,8 +80,13 @@ async function main(){
     // Frontend: se sirve únicamente la carpeta cliente (nunca el resto del proyecto).
     app.use(express.static(path.join(__dirname, "cliente")));
 
-    // API REST (capa de presentación del backend).
+    // API REST (capa de presentación del backend) y autorización con Google.
     api.montarApi(app, modelo);
+    montarOAuth(app, modelo, {
+        clientID: process.env.GOOGLE_CLIENT_ID,
+        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+        callbackURL: BASE_URL + "/auth/google/callback"
+    });
 
     // Cuerpo JSON mal formado o demasiado grande: el contrato general pide
     // responder 400 con {"error": "..."} en lugar de un 500 genérico.

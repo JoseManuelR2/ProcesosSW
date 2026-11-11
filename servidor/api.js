@@ -34,10 +34,14 @@ function montarApi(app, modelo){
         enviar(res, await modelo.registrarUsuario(email, password));
     });
 
-    // Confirmación de cuenta. Temporalmente vía API; en el Hito 4 la dispara el correo.
-    app.post("/api/confirmarCuenta", async function(req, res){
-        let { email } = req.body || {};
-        enviar(res, await modelo.confirmarCuenta(email));
+    // Enlace del correo de confirmación. Responde con una redirección a la
+    // página principal, que muestra el resultado.
+    app.get("/api/confirmarCuenta", async function(req, res){
+        let resultado = await modelo.confirmarCuenta(req.query.token);
+        if (resultado.error){
+            return res.redirect("/?confirmacion=error&motivo=" + encodeURIComponent(resultado.error));
+        }
+        res.redirect("/?confirmacion=ok");
     });
 
     app.post("/api/login", async function(req, res){
@@ -77,7 +81,14 @@ function montarApi(app, modelo){
     });
 
     app.delete("/api/usuario/:email", requiereSesion, async function(req, res){
-        enviar(res, await modelo.eliminarUsuario(req.session.usuario, req.params.email));
+        let email = req.params.email;
+        let resultado = await modelo.eliminarUsuario(req.session.usuario, email);
+        if (resultado.error || req.session.usuario.email !== email){
+            return enviar(res, resultado);
+        }
+        req.session.destroy(function(){
+            res.send(resultado);
+        });
     });
 
     // --- Variante 4: bloqueo por intentos fallidos ---

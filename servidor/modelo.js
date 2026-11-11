@@ -10,7 +10,7 @@ const ROL_ADMIN = "administrador";
 const ESTADO_PENDIENTE = "pendiente";
 const ESTADO_CONFIRMADO = "confirmado";
 // Borrado lógico: la cuenta se conserva para que no pueda volver a entrar
-// (ni por contraseña ni con GitHub).
+// (ni por contraseña ni con Google).
 const ESTADO_ELIMINADO = "eliminado";
 const ORIGEN_LOCAL = "local";
 const HORAS_CADUCIDAD_CONFIRMACION = 24;
@@ -194,7 +194,7 @@ function Modelo(cad, log, correo){
         return { email: usuario.email, rol: usuario.rol };
     };
 
-    // Inicio de sesión con un proveedor OAuth (GitHub). El email del proveedor ya está verificado, así que
+    // Inicio de sesión con un proveedor OAuth (Google). El email del proveedor ya está verificado, así que
     // la cuenta queda confirmada. Una cuenta eliminada no vuelve a entrar.
     this.iniciarConOAuth = async function(email, proveedor){
         if (!email || !RE_EMAIL.test(email)){

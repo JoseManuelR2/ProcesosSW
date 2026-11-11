@@ -106,8 +106,12 @@ function Modelo(cad, log, correo){
             return { error: "La contraseña debe tener al menos " + LONGITUD_MINIMA_PASSWORD + " caracteres", codigo: 400 };
         }
         let existente = await this.cad.obtenerUsuario(email);
-        if (existente){
+        if (existente && existente.estado !== ESTADO_ELIMINADO){
             return { error: "Ya existe una cuenta con ese email", codigo: 409 };
+        }
+        // Si la cuenta estaba eliminada, la borramos físicamente para poder re-registrarla.
+        if (existente && existente.estado === ESTADO_ELIMINADO){
+            await this.cad.eliminarUsuario(email);
         }
         let hash = await seguridad.hashear(password);
         let token = crypto.randomBytes(32).toString("hex");
@@ -195,15 +199,23 @@ function Modelo(cad, log, correo){
     };
 
     // Inicio de sesión con un proveedor OAuth (Google). El email del proveedor ya está verificado, así que
-    // la cuenta queda confirmada. Una cuenta eliminada no vuelve a entrar.
+    // la cuenta queda confirmada. Una cuenta eliminada se reactiva al entrar de nuevo.
     this.iniciarConOAuth = async function(email, proveedor){
         if (!email || !RE_EMAIL.test(email)){
             return { error: "El proveedor no ha devuelto un email válido", codigo: 400 };
         }
         let usuario = await this.cad.obtenerUsuario(email);
         if (usuario && usuario.estado === ESTADO_ELIMINADO){
-            await this.log.registrar("login_fallido", { email: email, motivo: "eliminado", origen: proveedor });
-            return { error: "Esta cuenta ha sido eliminada", codigo: 403 };
+            // Reactivar la cuenta eliminada al entrar con OAuth.
+            await this.cad.actualizarUsuario(email, {
+                estado: ESTADO_CONFIRMADO,
+                origen: proveedor,
+                password: null,
+                tokenConfirmacion: null,
+                expiraConfirmacion: null
+            });
+            usuario = await this.cad.obtenerUsuario(email);
+            await this.log.registrar("reactivacion", { email: email, origen: proveedor });
         }
         if (!usuario){
             await this.cad.agregarUsuario({

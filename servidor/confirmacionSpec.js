@@ -121,12 +121,14 @@ describe("Inicio de sesión con Google (capa lógica)", function(){
         expect(guardado.estado).toBe("confirmado");
     });
 
-    it("una cuenta eliminada no vuelve a entrar con Google (caso de error)", async function(){
+    it("una cuenta eliminada se reactiva al entrar de nuevo con OAuth", async function(){
         await modelo.iniciarConOAuth("luis@gmail.com", "google");
         await modelo.eliminarUsuario({ email: "luis@gmail.com", rol: "usuario" }, "luis@gmail.com");
         let res = await modelo.iniciarConOAuth("luis@gmail.com", "google");
-        expect(res.error).toBeDefined();
-        expect(res.codigo).toBe(403);
+        expect(res.error).toBeUndefined();
+        expect(res.email).toBe("luis@gmail.com");
+        let guardado = await modelo.cad.obtenerUsuario("luis@gmail.com");
+        expect(guardado.estado).toBe("confirmado");
     });
 
     it("un usuario eliminado no aparece en el listado del administrador", async function(){

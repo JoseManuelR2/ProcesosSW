@@ -310,5 +310,5 @@ En local, si `SMTP_HOST` está vacío, el enlace de confirmación aparece en la 
 - Las contraseñas se almacenan con hash bcrypt (nunca en claro ni cifrado reversible).
 - Las restricciones de rol y de sesión se aplican en el servidor, no solo ocultando botones.
 - La confirmación de cuenta exige el token enviado al correo; nadie puede activar una cuenta sin acceso a su buzón.
-- Los usuarios eliminados se conservan como borrado lógico para que no puedan volver a entrar ni con contraseña ni con Google.
+- Los usuarios eliminados se conservan como borrado lógico: no pueden entrar con contraseña, pero pueden re-registrarse o reactivar su cuenta entrando de nuevo con Google.
 - El servidor sirve únicamente la carpeta `cliente/`; nunca expone `servidor/` ni `.env`.

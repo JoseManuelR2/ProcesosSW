@@ -8,7 +8,8 @@
   },
   "scripts": {
     "start": "node index.js",
-    "test": "jasmine"
+    "test": "jasmine",
+    "test:e2e": "playwright test"
   },
   "repository": {
     "type": "git",
@@ -34,6 +35,7 @@
     "socket.io": "^4.8.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.0",
     "jasmine": "^7.0.0"
   }
 }

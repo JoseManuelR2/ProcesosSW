@@ -43,16 +43,16 @@
     var socket = io();
     window.juegoWeb = new JuegoWeb(cw, socket);
     configurarSocket(window.juegoWeb);
-    // Al cargar, comprueba si ya hay sesión (mantener sesión entre recargas).
-    cw.iniciar();
     // Cuando haya sesión, identificar al socket.
     var origIniciar = cw.iniciar.bind(cw);
     cw.iniciar = function(){
       origIniciar();
       rest.sesion(function(usuario){
-        window.juegoWeb.iniciar(usuario);
+        if (window.juegoWeb){ window.juegoWeb.iniciar(usuario); }
       }, function(){});
     };
+    // Al cargar, comprueba si ya hay sesión (mantener sesión entre recargas).
+    cw.iniciar();
   </script>
 </body>
 </html>

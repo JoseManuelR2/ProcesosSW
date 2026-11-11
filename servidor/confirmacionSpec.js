@@ -2,7 +2,7 @@ const { Modelo } = require("./modelo.js");
 const { CadMemoria } = require("./cadMemoria.js");
 
 // Pruebas de la confirmación por correo, la caducidad del enlace y el inicio con
-// Google. Como en el resto de la capa lógica, usan la CAD en memoria y un correo
+// OAuth (GitHub). Como en el resto de la capa lógica, usan la CAD en memoria y un correo
 // simulado: no necesitan red ni base de datos.
 
 const ADMIN = { email: "admin@test.com", rol: "administrador" };
@@ -90,48 +90,48 @@ describe("Confirmación de cuenta por correo (capa lógica)", function(){
     });
 });
 
-describe("Inicio de sesión con Google (capa lógica)", function(){
+describe("Inicio de sesión con GitHub (capa lógica)", function(){
     let modelo;
 
     beforeEach(function(){
         modelo = crearModelo();
     });
 
-    it("crea la cuenta confirmada en el primer inicio con Google", async function(){
-        let res = await modelo.iniciarConGoogle("luis@gmail.com");
+    it("crea la cuenta confirmada en el primer inicio con GitHub", async function(){
+        let res = await modelo.iniciarConOAuth("luis@gmail.com", "github");
         expect(res.error).toBeUndefined();
         expect(res.email).toBe("luis@gmail.com");
         expect(res.rol).toBe("usuario");
         let guardado = await modelo.cad.obtenerUsuario("luis@gmail.com");
         expect(guardado.estado).toBe("confirmado");
-        expect(guardado.origen).toBe("google");
+        expect(guardado.origen).toBe("github");
     });
 
-    it("una cuenta solo de Google no puede entrar con contraseña (caso de error)", async function(){
-        await modelo.iniciarConGoogle("luis@gmail.com");
+    it("una cuenta solo de GitHub no puede entrar con contraseña (caso de error)", async function(){
+        await modelo.iniciarConOAuth("luis@gmail.com", "github");
         let res = await modelo.autenticar("luis@gmail.com", "cualquiera");
         expect(res.error).toBeDefined();
         expect(res.codigo).toBe(401);
     });
 
-    it("una cuenta local pendiente queda confirmada al entrar con Google", async function(){
+    it("una cuenta local pendiente queda confirmada al entrar con GitHub", async function(){
         await modelo.registrarUsuario("ana@test.com", "contrasena1");
-        await modelo.iniciarConGoogle("ana@test.com");
+        await modelo.iniciarConOAuth("ana@test.com", "github");
         let guardado = await modelo.cad.obtenerUsuario("ana@test.com");
         expect(guardado.estado).toBe("confirmado");
     });
 
-    it("una cuenta eliminada no vuelve a entrar con Google (caso de error)", async function(){
-        await modelo.iniciarConGoogle("luis@gmail.com");
+    it("una cuenta eliminada no vuelve a entrar con GitHub (caso de error)", async function(){
+        await modelo.iniciarConOAuth("luis@gmail.com", "github");
         await modelo.eliminarUsuario({ email: "luis@gmail.com", rol: "usuario" }, "luis@gmail.com");
-        let res = await modelo.iniciarConGoogle("luis@gmail.com");
+        let res = await modelo.iniciarConOAuth("luis@gmail.com", "github");
         expect(res.error).toBeDefined();
         expect(res.codigo).toBe(403);
     });
 
     it("un usuario eliminado no aparece en el listado del administrador", async function(){
-        await modelo.iniciarConGoogle("luis@gmail.com");
-        await modelo.iniciarConGoogle("ana@gmail.com");
+        await modelo.iniciarConOAuth("luis@gmail.com", "github");
+        await modelo.iniciarConOAuth("ana@gmail.com", "github");
         await modelo.eliminarUsuario(ADMIN, "luis@gmail.com");
         let res = await modelo.listarUsuarios(ADMIN);
         expect(res.usuarios.length).toBe(1);

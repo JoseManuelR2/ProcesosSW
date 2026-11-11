@@ -80,12 +80,12 @@ async function main(){
     // Frontend: se sirve únicamente la carpeta cliente (nunca el resto del proyecto).
     app.use(express.static(path.join(__dirname, "cliente")));
 
-    // API REST (capa de presentación del backend) y autorización con Google.
+    // API REST (capa de presentación del backend) y autorización con GitHub.
     api.montarApi(app, modelo);
     montarOAuth(app, modelo, {
-        clientID: process.env.GOOGLE_CLIENT_ID,
-        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-        callbackURL: BASE_URL + "/auth/google/callback"
+        clientID: process.env.GITHUB_CLIENT_ID,
+        clientSecret: process.env.GITHUB_CLIENT_SECRET,
+        callbackURL: BASE_URL + "/auth/github/callback"
     });
 
     // Cuerpo JSON mal formado o demasiado grande: el contrato general pide

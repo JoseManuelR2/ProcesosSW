@@ -10,7 +10,7 @@ residen en el servidor; el cliente solo se comunica mediante una API REST.
 | --- | --- | --- |
 | Node.js + Express | Backend y API REST | Mismo lenguaje (JavaScript) en cliente y servidor; Express es minimalista y muy extendido. |
 | MongoDB + Mongoose | Base de datos | Base de datos real (los datos sobreviven a un reinicio); Mongoose facilita el modelado y la capa de acceso a datos. |
-| Passport.js + passport-github2 | Inicio con GitHub (OAuth 2.0) | Gratuito y sin verificación de dominio; Passport solo verifica la identidad y la sesión la abre la aplicación. |
+| Passport.js + passport-google-oauth20 | Inicio con Google (OAuth 2.0) | Estrategia estándar y probada para OAuth; Passport solo verifica la identidad y la sesión la abre la aplicación. |
 | Nodemailer | Correo de confirmación | Envío por SMTP autenticado (Gmail con contraseña de aplicación o un servicio transaccional); los proveedores cloud suelen bloquear SMTP directo, así que se usa un servicio con cuenta. |
 | express-session | Sesión de usuario | Sesión en el servidor con cookie; el cierre de sesión es inmediato y muy fácil de explicar. |
 | bcryptjs | Hash de contraseñas | Nunca se guarda la contraseña en claro; bcryptjs es puro JavaScript (sin compilación nativa). |
@@ -81,7 +81,7 @@ servidor/
   api.js                       Capa API (rutas REST + control de sesión y rol)
   modelo.js                    Capa lógica (reglas de negocio)
   correo.js                    Envío del correo de confirmación (SMTP)
-  oauth.js                     Inicio con GitHub (Passport)
+  oauth.js                     Inicio con Google (Passport)
   seguridad.js                 Hash de contraseñas (bcryptjs)
   log.js                       Registro de actividad
   cad.js                       Selección de la CAD (Mongo o memoria)
@@ -121,13 +121,13 @@ el propio servicio; nunca se suben al repositorio.
 | Variable | Descripción |
 | --- | --- |
 | `PORT` | Puerto del servidor (Cloud Run lo inyecta). |
-| `BASE_URL` | URL pública (enlaces del correo y URL de retorno de GitHub). En Cloud Run la fija el despliegue. |
+| `BASE_URL` | URL pública (enlaces del correo y URL de retorno de Google). En Cloud Run la fija el despliegue. |
 | `MONGODB_URI` | Cadena de conexión a MongoDB. |
 | `SESSION_SECRET` | Secreto para firmar la cookie de sesión. Obligatorio en producción. |
 | `ADMIN_EMAIL` | Email del administrador inicial (semilla al arrancar). |
 | `ADMIN_PASSWORD` | Contraseña del administrador inicial. |
-| `GITHUB_CLIENT_ID` | ID de cliente de la OAuth App de GitHub. |
-| `GITHUB_CLIENT_SECRET` | Secreto de la OAuth App de GitHub. |
+| `GOOGLE_CLIENT_ID` | ID de cliente OAuth de Google. |
+| `GOOGLE_CLIENT_SECRET` | Secreto del cliente OAuth de Google. |
 | `SMTP_HOST` | Servidor SMTP para el correo de confirmación. Obligatorio en producción. |
 | `SMTP_PORT` | Puerto SMTP (por defecto 587; 465 usa TLS directo). |
 | `SMTP_USER` / `SMTP_PASS` | Credenciales SMTP. |
@@ -152,8 +152,8 @@ usuario normal intentando eliminar a otro, etc.). Las pruebas de la variante 4
 | --- | --- | --- | --- |
 | POST | `/api/registro` | público | Crea la cuenta en estado `pendiente`. |
 | GET | `/api/confirmarCuenta?token=…` | público (enlace del correo) | Confirma la cuenta y redirige a `/` con el resultado. El token caduca a las 24 h y es de un solo uso. |
-| GET | `/auth/github` | público | Inicia el acceso con GitHub (redirige a GitHub). |
-| GET | `/auth/github/callback` | GitHub | Recibe a GitHub, abre la sesión y redirige a `/`. |
+| GET | `/auth/google` | público | Inicia el acceso con Google (redirige a Google). |
+| GET | `/auth/google/callback` | Google | Recibe a Google, abre la sesión y redirige a `/`. |
 | POST | `/api/login` | público | Inicia sesión y abre la sesión (cookie). |
 | POST | `/api/logout` | sesión | Cierra la sesión. |
 | GET | `/api/sesion` | — | Usuario de la sesión actual (mantener sesión al recargar). |
@@ -211,8 +211,8 @@ necesita que existan estos **secretos** en el repositorio
 | `SESSION_SECRET` | Secreto para firmar la cookie de sesión. |
 | `ADMIN_EMAIL` | Email del administrador inicial. |
 | `ADMIN_PASSWORD` | Contraseña del administrador inicial. |
-| `GITHUB_CLIENT_ID` | ID de la OAuth App de GitHub (producción). |
-| `GITHUB_CLIENT_SECRET` | Secreto de la OAuth App de GitHub (producción). |
+| `GOOGLE_CLIENT_ID` | ID de cliente OAuth de Google (producción). |
+| `GOOGLE_CLIENT_SECRET` | Secreto del cliente OAuth de Google (producción). |
 | `SMTP_HOST` | Servidor SMTP. |
 | `SMTP_USER` | Usuario SMTP. |
 | `SMTP_PASS` | Contraseña SMTP. |
@@ -271,25 +271,20 @@ y devuelve la URL pública en el resumen del workflow.
   - [x] Roles usuario/administrador con restricciones aplicadas en el servidor.
   - [x] Registro (log) de la actividad relevante.
 - **Hito 4 — Servicios externos y cierre**
-  - [x] Inicio de sesión con GitHub (OAuth 2.0 con Passport.js).
+  - [x] Inicio de sesión con Google (OAuth 2.0 con Passport.js).
   - [x] Confirmación de cuenta por correo electrónico (enlace con token de un solo uso y caducidad de 24 h).
   - [x] Manejo de errores con mensajes claros al usuario (correo fallido, enlace caducado, cuenta pendiente, etc.).
 
-## Configurar GitHub y el correo
+## Configurar Google y el correo
 
-### Inicio con GitHub
+### Inicio con Google
 
-GitHub no pide dominio verificado, así que es la opción gratuita. Necesitas **dos** OAuth Apps,
-porque cada una admite una sola URL de retorno:
-
-1. GitHub → tu avatar → *Settings* → *Developer settings* → *OAuth Apps* → *New OAuth App*.
-2. App local: *Application name* `ProcesosSW local`, *Homepage URL* `http://localhost:3000`,
-   *Authorization callback URL* `http://localhost:3000/auth/github/callback`. Guarda el *Client ID* y genera un *Client secret*.
-3. App de producción: *Application name* `ProcesosSW`, *Homepage URL* `https://procesossw-tctg2penfa-ew.a.run.app`,
-   *Authorization callback URL* `https://procesossw-tctg2penfa-ew.a.run.app/auth/github/callback`.
-   Guarda su *Client ID* y su secreto.
-
-El secreto solo se muestra una vez: cópialo al momento.
+1. Google Cloud Console → menú ☰ → *Google Auth Platform*.
+2. *Branding*: nombre `ProcesosSW` y tu email de contacto. Deja la página principal vacía mientras la app esté en modo *Prueba*.
+3. *Público*: tipo **Externo** y añade como *Usuarios de prueba* las cuentas que entrarán (la tuya y la del revisor).
+4. *Clientes* → *+ Crear cliente* → tipo **Aplicación web**:
+   - Orígenes autorizados de JavaScript: `http://localhost:3000` y `https://procesossw-tctg2penfa-ew.a.run.app`
+   - URI de redirección autorizados (exactas): `http://localhost:3000/auth/google/callback` y `https://procesossw-tctg2penfa-ew.a.run.app/auth/google/callback`
 
 ### Correo de confirmación
 
@@ -306,5 +301,5 @@ En local, si `SMTP_HOST` está vacío, el enlace de confirmación aparece en la 
 - Las contraseñas se almacenan con hash bcrypt (nunca en claro ni cifrado reversible).
 - Las restricciones de rol y de sesión se aplican en el servidor, no solo ocultando botones.
 - La confirmación de cuenta exige el token enviado al correo; nadie puede activar una cuenta sin acceso a su buzón.
-- Los usuarios eliminados se conservan como borrado lógico para que no puedan volver a entrar ni con contraseña ni con GitHub.
+- Los usuarios eliminados se conservan como borrado lógico para que no puedan volver a entrar ni con contraseña ni con Google.
 - El servidor sirve únicamente la carpeta `cliente/`; nunca expone `servidor/` ni `.env`.

@@ -4,6 +4,13 @@
 function ControlWeb(){
     this.usuario = null;
 
+    // Evita inyectar HTML cuando se muestran datos del usuario (p. ej. un email).
+    this.escapar = function(texto){
+        return String(texto).replace(/[&<>"']/g, function(c){
+            return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+        });
+    };
+
     this.limpiarMensaje = function(){
         $("#mensaje").addClass("d-none").text("");
     };
@@ -34,12 +41,41 @@ function ControlWeb(){
         $("#navSalir").on("click", function(e){ e.preventDefault(); self.cerrarSesion(); });
     };
 
+    // Avisos que llegan en la URL tras confirmar el correo o al volver de Google.
+    this.avisoDesdeUrl = function(params){
+        if (params.get("confirmacion") === "ok"){
+            return { texto: "Cuenta confirmada. Ya puedes iniciar sesión.", tipo: "success" };
+        }
+        if (params.get("confirmacion") === "error"){
+            return { texto: params.get("motivo") || "No se pudo confirmar la cuenta", tipo: "danger" };
+        }
+        if (params.get("error") === "google"){
+            return { texto: "No se pudo iniciar sesión con Google", tipo: "danger" };
+        }
+        if (params.get("error") === "google_no_configurado"){
+            return { texto: "El inicio con Google no está configurado en el servidor", tipo: "warning" };
+        }
+        return null;
+    };
+
     // --- Arranque: comprueba la sesión y decide qué mostrar ---
     this.iniciar = function(){
         let self = this;
+        let aviso = this.avisoDesdeUrl(new URLSearchParams(window.location.search));
+        if (window.history && window.history.replaceState){
+            window.history.replaceState(null, "", "/");
+        }
         rest.sesion(
-            function(usuario){ self.usuario = usuario; self.mostrarInicio(); },
-            function(){ self.usuario = null; self.mostrarLogin(); }
+            function(usuario){
+                self.usuario = usuario;
+                self.mostrarInicio();
+                if (aviso){ self.mostrarMensaje(aviso.texto, aviso.tipo); }
+            },
+            function(){
+                self.usuario = null;
+                self.mostrarLogin();
+                if (aviso){ self.mostrarMensaje(aviso.texto, aviso.tipo); }
+            }
         );
     };
 
@@ -47,8 +83,8 @@ function ControlWeb(){
         this.limpiarMensaje();
         this.mostrarBarra(this.usuario);
         let cadena = '<div class="jumbotron py-4 mt-3">';
-        cadena += '<h3>Bienvenido, ' + this.usuario.email + '</h3>';
-        cadena += '<p>Rol: <span class="badge badge-secondary">' + this.usuario.rol + '</span></p>';
+        cadena += '<h3>Bienvenido, ' + this.escapar(this.usuario.email) + '</h3>';
+        cadena += '<p>Rol: <span class="badge badge-secondary">' + this.escapar(this.usuario.rol) + '</span></p>';
         cadena += '</div>';
         $("#contenido").html(cadena);
     };
@@ -62,6 +98,7 @@ function ControlWeb(){
         cadena += '<div class="form-group"><label for="email">Email:</label><input type="email" class="form-control" id="email"></div>';
         cadena += '<div class="form-group"><label for="password">Contraseña:</label><input type="password" class="form-control" id="password"></div>';
         cadena += '<button id="btnLogin" type="button" class="btn btn-primary btn-block">Entrar</button>';
+        cadena += '<a id="btnGoogle" href="/auth/google" class="btn btn-outline-danger btn-block mt-2">Entrar con Google</a>';
         cadena += '<button id="btnIrRegistro" type="button" class="btn btn-link btn-block">Crear una cuenta</button>';
         cadena += '</div></div></div>';
         $("#contenido").html(cadena);
@@ -101,29 +138,25 @@ function ControlWeb(){
                 return;
             }
             rest.registrar(email, p1, function(){
-                self.mostrarMensaje("Cuenta creada. Confírmala para poder iniciar sesión.", "success");
                 self.mostrarConfirmacion(email);
             });
         });
         $("#btnIrLogin").on("click", function(){ self.mostrarLogin(); });
     };
 
-    // Confirmación de cuenta. En el Hito 4 la dispara el enlace del correo;
-    // mientras tanto, se ofrece un botón para poder probar el flujo completo.
+    // Tras registrarse, la cuenta queda pendiente hasta que se pulse el enlace del correo.
     this.mostrarConfirmacion = function(email){
-        let cadena = '<div class="card p-4 mt-3"><h5>Confirmación de cuenta</h5>';
-        cadena += '<p class="text-muted">El correo de confirmación llega en el Hito 4. Mientras tanto, confirma aquí para probar el flujo.</p>';
-        cadena += '<button id="btnConfirmar" type="button" class="btn btn-success">Confirmar la cuenta ' + email + '</button>';
-        cadena += '</div>';
-        $("#contenido").append(cadena);
+        this.limpiarMensaje();
+        let cadena = '<div class="row justify-content-center"><div class="col-md-5">';
+        cadena += '<div class="card p-4 mt-4"><h4>Revisa tu correo</h4>';
+        cadena += '<p>Te hemos enviado un enlace de confirmación a <strong>' + this.escapar(email) + '</strong>.</p>';
+        cadena += '<p>Confirma tu cuenta para poder iniciar sesión. Si no lo ves, revisa la carpeta de spam.</p>';
+        cadena += '<button id="btnIrLoginTrasRegistro" type="button" class="btn btn-primary btn-block">Ir a iniciar sesión</button>';
+        cadena += '</div></div></div>';
+        $("#contenido").html(cadena);
 
         let self = this;
-        $("#btnConfirmar").on("click", function(){
-            rest.confirmarCuenta(email, function(){
-                self.mostrarMensaje("Cuenta confirmada. Ya puedes iniciar sesión.", "success");
-                self.mostrarLogin();
-            });
-        });
+        $("#btnIrLoginTrasRegistro").on("click", function(){ self.mostrarLogin(); });
     };
 
     // --- Listado de usuarios (solo administrador) ---
@@ -131,10 +164,11 @@ function ControlWeb(){
         this.limpiarMensaje();
         let cadena = '<div class="card p-4 mt-3"><h5>Usuarios</h5><div id="lista"></div></div>';
         $("#contenido").html(cadena);
+        let self = this;
         rest.listarUsuarios(function(data){
             let filas = "";
             data.usuarios.forEach(function(u){
-                filas += "<tr><td>" + u.email + "</td><td>" + u.rol + "</td><td>" + u.estado + "</td></tr>";
+                filas += "<tr><td>" + self.escapar(u.email) + "</td><td>" + self.escapar(u.rol) + "</td><td>" + self.escapar(u.estado) + "</td></tr>";
             });
             $("#lista").html('<table class="table"><thead><tr><th>Email</th><th>Rol</th><th>Estado</th></tr></thead><tbody>' + filas + '</tbody></table>');
         });
@@ -160,7 +194,7 @@ function ControlWeb(){
         this.limpiarMensaje();
         let cadena = '<div class="card p-4 mt-3"><h5>Eliminar usuario</h5>';
         cadena += '<div class="form-group"><label for="emailEliminar">Email:</label>';
-        cadena += '<input type="email" class="form-control" id="emailEliminar" value="' + (this.usuario ? this.usuario.email : "") + '"></div>';
+        cadena += '<input type="email" class="form-control" id="emailEliminar" value="' + this.escapar(this.usuario ? this.usuario.email : "") + '"></div>';
         cadena += '<button id="btnEliminar" type="button" class="btn btn-danger">Eliminar</button></div>';
         $("#contenido").html(cadena);
 

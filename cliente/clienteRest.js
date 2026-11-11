@@ -38,10 +38,6 @@ function ClienteRest(cw){
         this.peticion("POST", "/api/registro", { email: email, password: password }, ok, err);
     };
 
-    this.confirmarCuenta = function(email, ok, err){
-        this.peticion("POST", "/api/confirmarCuenta", { email: email }, ok, err);
-    };
-
     this.login = function(email, password, ok, err){
         this.peticion("POST", "/api/login", { email: email, password: password }, ok, err);
     };

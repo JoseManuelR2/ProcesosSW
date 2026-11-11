@@ -10,6 +10,8 @@ residen en el servidor; el cliente solo se comunica mediante una API REST.
 | --- | --- | --- |
 | Node.js + Express | Backend y API REST | Mismo lenguaje (JavaScript) en cliente y servidor; Express es minimalista y muy extendido. |
 | MongoDB + Mongoose | Base de datos | Base de datos real (los datos sobreviven a un reinicio); Mongoose facilita el modelado y la capa de acceso a datos. |
+| Passport.js + passport-google-oauth20 | Inicio con Google (OAuth 2.0) | Estrategia estándar y probada para OAuth; Passport solo verifica la identidad y la sesión la abre la aplicación. |
+| Nodemailer | Correo de confirmación | Envío por SMTP autenticado (Gmail con contraseña de aplicación o un servicio transaccional); los proveedores cloud suelen bloquear SMTP directo, así que se usa un servicio con cuenta. |
 | express-session | Sesión de usuario | Sesión en el servidor con cookie; el cierre de sesión es inmediato y muy fácil de explicar. |
 | bcryptjs | Hash de contraseñas | Nunca se guarda la contraseña en claro; bcryptjs es puro JavaScript (sin compilación nativa). |
 | Bootstrap 4 + jQuery | Interfaz de cliente | Interfaz responsive y llamadas AJAX sencillas; el foco del proyecto es la arquitectura, no el diseño. |
@@ -78,12 +80,15 @@ index.js                       Punto de entrada: arranque, sesión y semilla del
 servidor/
   api.js                       Capa API (rutas REST + control de sesión y rol)
   modelo.js                    Capa lógica (reglas de negocio)
+  correo.js                    Envío del correo de confirmación (SMTP)
+  oauth.js                     Inicio con Google (Passport)
   seguridad.js                 Hash de contraseñas (bcryptjs)
   log.js                       Registro de actividad
   cad.js                       Selección de la CAD (Mongo o memoria)
   cadMongo.js                  CAD contra MongoDB (Mongoose)
   cadMemoria.js                CAD en memoria (pruebas y desarrollo)
   modeloSpec.js                Pruebas unitarias de la capa lógica
+  confirmacionSpec.js          Pruebas de confirmación por correo y de Google
 cliente/
   index.html                   Página única (SPA)
   clienteRest.js               Capa de comunicación (AJAX)
@@ -116,11 +121,18 @@ el propio servicio; nunca se suben al repositorio.
 | Variable | Descripción |
 | --- | --- |
 | `PORT` | Puerto del servidor (Cloud Run lo inyecta). |
+| `BASE_URL` | URL pública (enlaces del correo y URL de retorno de Google). En Cloud Run la fija el despliegue. |
 | `MONGODB_URI` | Cadena de conexión a MongoDB. |
-| `SESSION_SECRET` | Secreto para firmar la cookie de sesión. |
+| `SESSION_SECRET` | Secreto para firmar la cookie de sesión. Obligatorio en producción. |
 | `ADMIN_EMAIL` | Email del administrador inicial (semilla al arrancar). |
 | `ADMIN_PASSWORD` | Contraseña del administrador inicial. |
-| `NODE_ENV` | `production` activa cookies seguras (HTTPS). |
+| `GOOGLE_CLIENT_ID` | ID de cliente OAuth de Google. |
+| `GOOGLE_CLIENT_SECRET` | Secreto del cliente OAuth de Google. |
+| `SMTP_HOST` | Servidor SMTP para el correo de confirmación. Obligatorio en producción. |
+| `SMTP_PORT` | Puerto SMTP (por defecto 587; 465 usa TLS directo). |
+| `SMTP_USER` / `SMTP_PASS` | Credenciales SMTP. |
+| `MAIL_FROM` | Remitente de los correos (p. ej. `ProcesosSW <tu-cuenta@gmail.com>`). |
+| `NODE_ENV` | `production` activa cookies seguras (HTTPS) y exige `SESSION_SECRET` y `SMTP_HOST`. |
 
 ## Pruebas
 
@@ -139,13 +151,15 @@ usuario normal intentando eliminar a otro, etc.). Las pruebas de la variante 4
 | Método | Ruta | Acceso | Devuelve |
 | --- | --- | --- | --- |
 | POST | `/api/registro` | público | Crea la cuenta en estado `pendiente`. |
-| POST | `/api/confirmarCuenta` | público | Confirma la cuenta (en el Hito 4 lo hará el correo). |
+| GET | `/api/confirmarCuenta?token=…` | público (enlace del correo) | Confirma la cuenta y redirige a `/` con el resultado. El token caduca a las 24 h y es de un solo uso. |
+| GET | `/auth/google` | público | Inicia el acceso con Google (redirige a Google). |
+| GET | `/auth/google/callback` | Google | Recibe a Google, abre la sesión y redirige a `/`. |
 | POST | `/api/login` | público | Inicia sesión y abre la sesión (cookie). |
 | POST | `/api/logout` | sesión | Cierra la sesión. |
 | GET | `/api/sesion` | — | Usuario de la sesión actual (mantener sesión al recargar). |
 | GET | `/api/usuarios` | administrador | Lista con email, rol y estado. |
 | GET | `/api/usuarioActivo/:email` | administrador | `{"activo":true|false}`. |
-| DELETE | `/api/usuario/:email` | admin o uno mismo | Elimina la cuenta. |
+| DELETE | `/api/usuario/:email` | admin o uno mismo | Elimina la cuenta (borrado lógico: no puede volver a entrar). Si es la propia, cierra la sesión. |
 | POST | `/api/prueba/bloqueo` | público | Bloqueo por intentos fallidos (variante 4). |
 
 ### Variante 4: bloqueo por intentos fallidos
@@ -197,6 +211,14 @@ necesita que existan estos **secretos** en el repositorio
 | `SESSION_SECRET` | Secreto para firmar la cookie de sesión. |
 | `ADMIN_EMAIL` | Email del administrador inicial. |
 | `ADMIN_PASSWORD` | Contraseña del administrador inicial. |
+| `GOOGLE_CLIENT_ID` | ID de cliente OAuth de Google (producción). |
+| `GOOGLE_CLIENT_SECRET` | Secreto del cliente OAuth de Google (producción). |
+| `SMTP_HOST` | Servidor SMTP. |
+| `SMTP_USER` | Usuario SMTP. |
+| `SMTP_PASS` | Contraseña SMTP. |
+| `MAIL_FROM` | Remitente de los correos. |
+
+`BASE_URL` no es un secreto: el propio despliegue la fija con la URL de Cloud Run.
 
 Mientras falte alguno de ellos, el paso de despliegue se **omite** (el workflow
 queda en verde) y la aplicación no se publica.
@@ -248,12 +270,36 @@ y devuelve la URL pública en el resumen del workflow.
   - [x] Secretos en variables de entorno (`.env.example`).
   - [x] Roles usuario/administrador con restricciones aplicadas en el servidor.
   - [x] Registro (log) de la actividad relevante.
+- **Hito 4 — Servicios externos y cierre**
+  - [x] Inicio de sesión con Google (OAuth 2.0 con Passport.js).
+  - [x] Confirmación de cuenta por correo electrónico (enlace con token de un solo uso y caducidad de 24 h).
+  - [x] Manejo de errores con mensajes claros al usuario (correo fallido, enlace caducado, cuenta pendiente, etc.).
 
-Pendiente para el Hito 4: inicio de sesión con proveedor externo (OAuth) y
-confirmación de cuenta por correo electrónico.
+## Configurar Google y el correo
+
+### Inicio con Google
+
+1. Google Cloud Console → *Pantalla de consentimiento de OAuth*: tipo **Externo**, nombre y email de contacto.
+   Mientras esté en modo *Prueba*, solo entran las cuentas añadidas como usuarios de prueba.
+2. *Credenciales* → *Crear credenciales* → *ID de cliente de OAuth* → tipo **Aplicación web**.
+3. Orígenes autorizados de JavaScript: `http://localhost:3000` y la URL pública.
+4. URI de redireccionamiento autorizados (deben coincidir exactamente):
+   `http://localhost:3000/auth/google/callback` y `https://<URL-pública>/auth/google/callback`.
+
+### Correo de confirmación
+
+En local, si `SMTP_HOST` está vacío, el enlace de confirmación aparece en la consola del servidor
+(`[CORREO SIMULADO] …`). Para enviar correos de verdad con Gmail:
+
+1. Activa la verificación en dos pasos de tu cuenta de Google.
+2. Crea una *contraseña de aplicación* (Gestionar tu cuenta → Seguridad → Contraseñas de aplicación).
+3. Usa `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=465`, `SMTP_USER=tu-cuenta@gmail.com`,
+   `SMTP_PASS=<contraseña de aplicación>` y `MAIL_FROM=ProcesosSW <tu-cuenta@gmail.com>`.
 
 ## Notas de seguridad
 
 - Las contraseñas se almacenan con hash bcrypt (nunca en claro ni cifrado reversible).
 - Las restricciones de rol y de sesión se aplican en el servidor, no solo ocultando botones.
+- La confirmación de cuenta exige el token enviado al correo; nadie puede activar una cuenta sin acceso a su buzón.
+- Los usuarios eliminados se conservan como borrado lógico para que no puedan volver a entrar ni con contraseña ni con Google.
 - El servidor sirve únicamente la carpeta `cliente/`; nunca expone `servidor/` ni `.env`.

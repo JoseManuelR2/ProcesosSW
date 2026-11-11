@@ -7,6 +7,12 @@ function crearModelo(){
     return new Modelo(new CadMemoria());
 }
 
+// El token de confirmación lo genera la capa lógica y solo llega al usuario por
+// correo; en las pruebas lo leemos directamente de la CAD.
+async function tokenDe(modelo, email){
+    return (await modelo.cad.obtenerUsuario(email)).tokenConfirmacion;
+}
+
 const ADMIN = { email: "admin@test.com", rol: "administrador" };
 const USUARIO = { email: "ana@test.com", rol: "usuario" };
 
@@ -59,7 +65,7 @@ describe("Gestión de usuarios (capa lógica)", function(){
 
     it("permite iniciar sesión tras confirmar la cuenta", async function(){
         await modelo.registrarUsuario("ana@test.com", "contrasena1");
-        await modelo.confirmarCuenta("ana@test.com");
+        await modelo.confirmarCuenta(await tokenDe(modelo, "ana@test.com"));
         let res = await modelo.autenticar("ana@test.com", "contrasena1");
         expect(res.error).toBeUndefined();
         expect(res.email).toBe("ana@test.com");
@@ -68,7 +74,7 @@ describe("Gestión de usuarios (capa lógica)", function(){
 
     it("no permite iniciar sesión con la contraseña incorrecta (caso de error)", async function(){
         await modelo.registrarUsuario("ana@test.com", "contrasena1");
-        await modelo.confirmarCuenta("ana@test.com");
+        await modelo.confirmarCuenta(await tokenDe(modelo, "ana@test.com"));
         let res = await modelo.autenticar("ana@test.com", "incorrecta");
         expect(res.error).toBeDefined();
         expect(res.codigo).toBe(401);
@@ -93,7 +99,7 @@ describe("Gestión de usuarios (capa lógica)", function(){
     it("usuarioActivo es verdadero solo si la cuenta está confirmada", async function(){
         await modelo.registrarUsuario("ana@test.com", "contrasena1");
         let antes = await modelo.usuarioActivo(ADMIN, "ana@test.com");
-        await modelo.confirmarCuenta("ana@test.com");
+        await modelo.confirmarCuenta(await tokenDe(modelo, "ana@test.com"));
         let despues = await modelo.usuarioActivo(ADMIN, "ana@test.com");
         expect(antes.activo).toBeFalse();
         expect(despues.activo).toBeTrue();
@@ -111,19 +117,19 @@ describe("Gestión de usuarios (capa lógica)", function(){
         await modelo.registrarUsuario("ana@test.com", "contrasena1");
         let res = await modelo.eliminarUsuario(USUARIO, "ana@test.com");
         expect(res.error).toBeUndefined();
-        expect(await modelo.cad.obtenerUsuario("ana@test.com")).toBeNull();
+        expect((await modelo.cad.obtenerUsuario("ana@test.com")).estado).toBe("eliminado");
     });
 
     it("el administrador puede eliminar a cualquier usuario", async function(){
         await modelo.registrarUsuario("ana@test.com", "contrasena1");
         let res = await modelo.eliminarUsuario(ADMIN, "ana@test.com");
         expect(res.error).toBeUndefined();
-        expect(await modelo.cad.obtenerUsuario("ana@test.com")).toBeNull();
+        expect((await modelo.cad.obtenerUsuario("ana@test.com")).estado).toBe("eliminado");
     });
 
     it("un usuario eliminado no puede volver a iniciar sesión (caso de error)", async function(){
         await modelo.registrarUsuario("ana@test.com", "contrasena1");
-        await modelo.confirmarCuenta("ana@test.com");
+        await modelo.confirmarCuenta(await tokenDe(modelo, "ana@test.com"));
         await modelo.eliminarUsuario(ADMIN, "ana@test.com");
         let res = await modelo.autenticar("ana@test.com", "contrasena1");
         expect(res.error).toBeDefined();

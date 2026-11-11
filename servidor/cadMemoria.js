@@ -14,6 +14,12 @@ function CadMemoria(){
         return Object.values(this.usuarios);
     };
 
+    this.obtenerUsuarioPorToken = async function(token){
+        return Object.values(this.usuarios).find(function(u){
+            return u.tokenConfirmacion === token;
+        }) || null;
+    };
+
     this.agregarUsuario = async function(usuario){
         this.usuarios[usuario.email] = Object.assign({}, usuario);
     };

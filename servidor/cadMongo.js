@@ -3,10 +3,13 @@
 const mongoose = require("mongoose");
 
 const usuarioSchema = new mongoose.Schema({
-    email:    { type: String, required: true, unique: true, index: true },
-    password: { type: String, required: true },
-    rol:      { type: String, default: "usuario" },
-    estado:   { type: String, default: "pendiente" }
+    email:              { type: String, required: true, unique: true, index: true },
+    password:           { type: String, default: null },
+    rol:                { type: String, default: "usuario" },
+    estado:             { type: String, default: "pendiente" },
+    origen:             { type: String, default: "local" },
+    tokenConfirmacion:  { type: String, default: null, index: true, sparse: true },
+    expiraConfirmacion: { type: Number, default: null }
 }, { versionKey: false });
 
 const logSchema = new mongoose.Schema({
@@ -30,6 +33,10 @@ function CadMongo(){
 
     this.obtenerUsuarios = async function(){
         return await Usuario.find({}).lean();
+    };
+
+    this.obtenerUsuarioPorToken = async function(token){
+        return await Usuario.findOne({ tokenConfirmacion: token }).lean();
     };
 
     this.agregarUsuario = async function(usuario){

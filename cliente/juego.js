@@ -85,6 +85,7 @@ JuegoWeb.prototype.mostrarEditor = function(partida){
     cadena += '<button id="btnBorrarUltimo" class="btn btn-warning btn-sm mr-1">Borrar último</button>';
     cadena += '<button id="btnLimpiar" class="btn btn-danger btn-sm mr-1">Limpiar</button>';
     cadena += '<button id="btnEnviar" class="btn btn-success btn-sm">Enviar programa</button>';
+    cadena += '<button id="btnEjecutar" class="btn btn-primary btn-sm ml-1" style="display:none;">Ejecutar</button>';
     cadena += '<p id="estadoPrograma" class="mt-2 text-muted"></p>';
     cadena += '</div></div></div>';
     $("#contenido").html(cadena);
@@ -104,6 +105,9 @@ JuegoWeb.prototype.mostrarEditor = function(partida){
     });
     $("#btnEnviar").on("click", function(){
         self.socket.emit("programar", { id: partida.id, comandos: self.programa.slice() });
+    });
+    $("#btnEjecutar").on("click", function(){
+        self.socket.emit("ejecutar", partida.id);
     });
 
     this.actualizarPrograma();
@@ -182,6 +186,7 @@ function configurarSocket(juego){
     });
     juego.socket.on("ambosListos", function(data){
         juego.cw.mostrarMensaje("Ambos jugadores listos. Pulsa Ejecutar.", "info");
+        $("#btnEjecutar").show();
     });
     juego.socket.on("resultado", function(resultado){
         juego.mostrarResultado(resultado);

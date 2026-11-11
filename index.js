@@ -148,14 +148,16 @@ async function main(){
         // Programar movimientos.
         socket.on("programar", function(data){
             let email = socketEmail[socket.id];
-            if (!email){ return; }
+            if (!email){ socket.emit("error", "No identificado"); return; }
             let partida = gestorPartidas.obtener(data.id);
             if (!partida){ socket.emit("error", "Partida no encontrada"); return; }
             let res = partida.programar(email, data.comandos);
             if (res.error){ socket.emit("error", res.error); return; }
             socket.emit("programado", { ok: true });
+            console.log("Programado por " + email + " en " + data.id + ". Ambos: " + partida.ambosProgramados());
             if (partida.ambosProgramados()){
                 io.to(data.id).emit("ambosListos", { id: data.id });
+                console.log("ambosListos emitido a " + data.id);
             }
         });
 

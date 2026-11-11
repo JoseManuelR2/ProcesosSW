@@ -111,6 +111,7 @@ function ControlWeb(){
                 self.usuario = usuario;
                 self.mostrarInicio();
                 self.mostrarMensaje("Sesión iniciada como " + usuario.email, "success");
+                if (window.juegoWeb){ window.juegoWeb.iniciar(usuario); }
             });
         });
         $("#btnIrRegistro").on("click", function(){ self.mostrarRegistro(); });

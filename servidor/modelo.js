@@ -10,10 +10,9 @@ const ROL_ADMIN = "administrador";
 const ESTADO_PENDIENTE = "pendiente";
 const ESTADO_CONFIRMADO = "confirmado";
 // Borrado lógico: la cuenta se conserva para que no pueda volver a entrar
-// (ni por contraseña ni con Google).
+// (ni por contraseña ni con GitHub).
 const ESTADO_ELIMINADO = "eliminado";
 const ORIGEN_LOCAL = "local";
-const ORIGEN_GOOGLE = "google";
 const HORAS_CADUCIDAD_CONFIRMACION = 24;
 const EXPIRA_CONFIRMACION_MS = HORAS_CADUCIDAD_CONFIRMACION * 60 * 60 * 1000;
 
@@ -195,15 +194,15 @@ function Modelo(cad, log, correo){
         return { email: usuario.email, rol: usuario.rol };
     };
 
-    // Inicio de sesión con Google. El correo de Google ya está verificado, así que
+    // Inicio de sesión con un proveedor OAuth (GitHub). El email del proveedor ya está verificado, así que
     // la cuenta queda confirmada. Una cuenta eliminada no vuelve a entrar.
-    this.iniciarConGoogle = async function(email){
+    this.iniciarConOAuth = async function(email, proveedor){
         if (!email || !RE_EMAIL.test(email)){
-            return { error: "Google no ha devuelto un email válido", codigo: 400 };
+            return { error: "El proveedor no ha devuelto un email válido", codigo: 400 };
         }
         let usuario = await this.cad.obtenerUsuario(email);
         if (usuario && usuario.estado === ESTADO_ELIMINADO){
-            await this.log.registrar("login_fallido", { email: email, motivo: "eliminado", origen: ORIGEN_GOOGLE });
+            await this.log.registrar("login_fallido", { email: email, motivo: "eliminado", origen: proveedor });
             return { error: "Esta cuenta ha sido eliminada", codigo: 403 };
         }
         if (!usuario){
@@ -212,7 +211,7 @@ function Modelo(cad, log, correo){
                 password: null,
                 rol: ROL_USUARIO,
                 estado: ESTADO_CONFIRMADO,
-                origen: ORIGEN_GOOGLE,
+                origen: proveedor,
                 tokenConfirmacion: null,
                 expiraConfirmacion: null
             });
@@ -221,7 +220,7 @@ function Modelo(cad, log, correo){
             await this.cad.actualizarUsuario(email, { estado: ESTADO_CONFIRMADO, tokenConfirmacion: null, expiraConfirmacion: null });
         }
         usuario = await this.cad.obtenerUsuario(email);
-        await this.log.registrar("login", { email: email, origen: ORIGEN_GOOGLE });
+        await this.log.registrar("login", { email: email, origen: proveedor });
         return { email: usuario.email, rol: usuario.rol };
     };
 

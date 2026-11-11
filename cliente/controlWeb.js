@@ -41,7 +41,7 @@ function ControlWeb(){
         $("#navSalir").on("click", function(e){ e.preventDefault(); self.cerrarSesion(); });
     };
 
-    // Avisos que llegan en la URL tras confirmar el correo o al volver de Google.
+    // Avisos que llegan en la URL tras confirmar el correo o al volver de GitHub.
     this.avisoDesdeUrl = function(params){
         if (params.get("confirmacion") === "ok"){
             return { texto: "Cuenta confirmada. Ya puedes iniciar sesión.", tipo: "success" };
@@ -49,11 +49,11 @@ function ControlWeb(){
         if (params.get("confirmacion") === "error"){
             return { texto: params.get("motivo") || "No se pudo confirmar la cuenta", tipo: "danger" };
         }
-        if (params.get("error") === "google"){
-            return { texto: "No se pudo iniciar sesión con Google", tipo: "danger" };
+        if (params.get("error") === "github"){
+            return { texto: "No se pudo iniciar sesión con GitHub", tipo: "danger" };
         }
-        if (params.get("error") === "google_no_configurado"){
-            return { texto: "El inicio con Google no está configurado en el servidor", tipo: "warning" };
+        if (params.get("error") === "github_no_configurado"){
+            return { texto: "El inicio con GitHub no está configurado en el servidor", tipo: "warning" };
         }
         return null;
     };
@@ -98,7 +98,7 @@ function ControlWeb(){
         cadena += '<div class="form-group"><label for="email">Email:</label><input type="email" class="form-control" id="email"></div>';
         cadena += '<div class="form-group"><label for="password">Contraseña:</label><input type="password" class="form-control" id="password"></div>';
         cadena += '<button id="btnLogin" type="button" class="btn btn-primary btn-block">Entrar</button>';
-        cadena += '<a id="btnGoogle" href="/auth/google" class="btn btn-outline-danger btn-block mt-2">Entrar con Google</a>';
+        cadena += '<a id="btnGitHub" href="/auth/github" class="btn btn-dark btn-block mt-2">Entrar con GitHub</a>';
         cadena += '<button id="btnIrRegistro" type="button" class="btn btn-link btn-block">Crear una cuenta</button>';
         cadena += '</div></div></div>';
         $("#contenido").html(cadena);

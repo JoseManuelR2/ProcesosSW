@@ -30,7 +30,7 @@
     "mongoose": "^9.11.2",
     "nodemailer": "^10.5.0",
     "passport": "^0.7.0",
-    "passport-google-oauth20": "^2.0.0"
+    "passport-github2": "^0.1.12"
   },
   "devDependencies": {
     "jasmine": "^7.0.0"

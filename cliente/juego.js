@@ -62,8 +62,34 @@ JuegoWeb.prototype.mostrarLobby = function(){
     cadena += '</div>';
     $("#contenido").html(cadena);
 
-    $("#btnCrearPartida").on("click", function(){ self.socket.emit("crearPartida"); });
-    $("#btnRefrescar").on("click", function(){ self.socket.emit("solicitarLista"); });
+    // Identificar y solicitar lista al entrar al lobby.
+    if (self.usuario){
+        if (!self.socket.connected){ self.socket.connect(); }
+        self.socket.emit("identificar", self.usuario.email);
+        self.socket.emit("solicitarLista");
+    }
+
+    $("#btnCrearPartida").on("click", function(){
+        if (!self.usuario){
+            self.cw.mostrarMensaje("Debes iniciar sesión para crear una partida", "warning");
+            return;
+        }
+        if (!self.socket.connected){
+            self.cw.mostrarMensaje("Conectando...", "info");
+            self.socket.connect();
+        }
+        self.socket.emit("identificar", self.usuario.email);
+        self.socket.emit("crearPartida");
+    });
+    $("#btnRefrescar").on("click", function(){
+        if (self.usuario && !self.socket.connected){
+            self.socket.connect();
+        }
+        if (self.usuario){
+            self.socket.emit("identificar", self.usuario.email);
+        }
+        self.socket.emit("solicitarLista");
+    });
 };
 
 JuegoWeb.prototype.mostrarEditor = function(partida){
@@ -144,7 +170,14 @@ JuegoWeb.prototype.mostrarResultado = function(resultado){
 
 JuegoWeb.prototype.actualizarListaPartidas = function(lista){
     let self = this;
+    if (!self.usuario){ 
+        console.log("actualizarListaPartidas: usuario no identificado");
+        return; 
+    }
     let html = '<table class="table table-sm"><thead><tr><th>ID</th><th>Creador</th><th>Jugadores</th><th>Estado</th><th></th></tr></thead><tbody>';
+    if (!lista || lista.length === 0){
+        html += '<tr><td colspan="5" class="text-muted">No hay partidas. Crea una.</td></tr>';
+    }
     lista.forEach(function(p){
         html += '<tr>';
         html += '<td>' + p.id + '</td>';
@@ -174,6 +207,13 @@ JuegoWeb.prototype.actualizarListaPartidas = function(lista){
 
 // Configurar los listeners de Socket.IO.
 function configurarSocket(juego){
+    // Re-identificar al reconectar.
+    juego.socket.on("connect", function(){
+        if (juego.usuario){
+            juego.socket.emit("identificar", juego.usuario.email);
+            juego.socket.emit("solicitarLista");
+        }
+    });
     juego.socket.on("partidaCreada", function(data){
         juego.partidaActual = data.partida;
         juego.mostrarEditor(data.partida);

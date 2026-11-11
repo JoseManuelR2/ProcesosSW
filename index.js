@@ -119,13 +119,15 @@ async function main(){
     io.on("connection", function(socket){
         // El cliente envía su email al conectarse.
         socket.on("identificar", function(email){
+            console.log("identificar: " + email + " (socket " + socket.id + ")");
             socketEmail[socket.id] = email;
         });
 
         // Crear partida.
         socket.on("crearPartida", function(){
             let email = socketEmail[socket.id];
-            if (!email){ return; }
+            console.log("crearPartida de " + (email || "anonimo"));
+            if (!email){ socket.emit("error", "No identificado"); return; }
             let partida = gestorPartidas.crear(email);
             socket.join(partida.id);
             socket.emit("partidaCreada", { id: partida.id, partida: serializar(partida) });
@@ -181,6 +183,7 @@ async function main(){
 
         // Solicitar lista de partidas.
         socket.on("solicitarLista", function(){
+            console.log("solicitarLista de " + (socketEmail[socket.id] || "anonimo"));
             socket.emit("listaPartidas", gestorPartidas.listar());
         });
 

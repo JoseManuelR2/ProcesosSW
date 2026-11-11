@@ -28,6 +28,7 @@ function ControlWeb(){
                 cadena += '<li class="nav-item"><a class="nav-link" href="#" id="navUsuarios">Usuarios</a></li>';
                 cadena += '<li class="nav-item"><a class="nav-link" href="#" id="navActivo">¿Activo?</a></li>';
             }
+            cadena += '<li class="nav-item"><a class="nav-link" href="#" id="navJuego">Maze Duel</a></li>';
             cadena += '<li class="nav-item"><a class="nav-link" href="#" id="navEliminar">Eliminar cuenta</a></li>';
             cadena += '<li class="nav-item"><a class="nav-link" href="#" id="navSalir">Salir</a></li>';
         }
@@ -37,6 +38,7 @@ function ControlWeb(){
         let self = this;
         $("#navUsuarios").on("click", function(e){ e.preventDefault(); self.mostrarListarUsuarios(); });
         $("#navActivo").on("click", function(e){ e.preventDefault(); self.mostrarUsuarioActivo(); });
+        $("#navJuego").on("click", function(e){ e.preventDefault(); if (window.juegoWeb){ window.juegoWeb.mostrarLobby(); window.juegoWeb.socket.emit("solicitarLista"); } });
         $("#navEliminar").on("click", function(e){ e.preventDefault(); self.mostrarEliminarUsuario(); });
         $("#navSalir").on("click", function(e){ e.preventDefault(); self.cerrarSesion(); });
     };

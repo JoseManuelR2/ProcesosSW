@@ -6,6 +6,15 @@
   <title>ProcesosSW</title>
   <!-- Bootstrap 4 (CSS, CDN) -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css">
+  <style>
+    .maze-grid { display: grid; grid-template-columns: repeat(10, 32px); gap: 2px; margin: 10px 0; }
+    .maze-cell { width: 32px; height: 32px; border-radius: 3px; background: #e9ecef; }
+    .maze-wall { background: #343a40; }
+    .maze-exit { background: #28a745; }
+    .maze-p1 { background: #007bff; box-shadow: 0 0 0 2px #0056b3; }
+    .maze-p2 { background: #dc3545; box-shadow: 0 0 0 2px #a71d2a; }
+    #programaLista { min-height: 40px; font-size: 1.5rem; letter-spacing: 4px; }
+  </style>
 </head>
 <body>
 
@@ -21,16 +30,29 @@
   <!-- jQuery y Bootstrap JS (el bundle incluye Popper) -->
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
 
   <!-- Capa de comunicación y capa de presentación (separadas) -->
   <script src="./clienteRest.js"></script>
   <script src="./controlWeb.js"></script>
+  <script src="./juego.js"></script>
 
   <script>
     cw = new ControlWeb();
     rest = new ClienteRest(cw);
+    var socket = io();
+    window.juegoWeb = new JuegoWeb(cw, socket);
+    configurarSocket(window.juegoWeb);
     // Al cargar, comprueba si ya hay sesión (mantener sesión entre recargas).
     cw.iniciar();
+    // Cuando haya sesión, identificar al socket.
+    var origIniciar = cw.iniciar.bind(cw);
+    cw.iniciar = function(){
+      origIniciar();
+      rest.sesion(function(usuario){
+        window.juegoWeb.iniciar(usuario);
+      }, function(){});
+    };
   </script>
 </body>
 </html>

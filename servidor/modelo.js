@@ -2,12 +2,20 @@
 // NO sabe si los datos están en memoria o en MongoDB: recibe la CAD por
 // inyección de dependencias (patrón que permite cambiar de implementación sin
 // tocar la lógica).
+const crypto = require("crypto");
 const seguridad = require("./seguridad.js");
 
 const ROL_USUARIO = "usuario";
 const ROL_ADMIN = "administrador";
 const ESTADO_PENDIENTE = "pendiente";
 const ESTADO_CONFIRMADO = "confirmado";
+// Borrado lógico: la cuenta se conserva para que no pueda volver a entrar
+// (ni por contraseña ni con Google).
+const ESTADO_ELIMINADO = "eliminado";
+const ORIGEN_LOCAL = "local";
+const ORIGEN_GOOGLE = "google";
+const HORAS_CADUCIDAD_CONFIRMACION = 24;
+const EXPIRA_CONFIRMACION_MS = HORAS_CADUCIDAD_CONFIRMACION * 60 * 60 * 1000;
 
 const RE_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const LONGITUD_MINIMA_PASSWORD = 8;
@@ -77,9 +85,11 @@ function evaluarBloqueo(fallos, ahora){
     return { bloqueado: true, hasta: formatearInstante(hasta) };
 }
 
-function Modelo(cad, log){
+function Modelo(cad, log, correo){
     this.cad = cad;
     this.log = log || { registrar: async function(){} };
+    // La capa lógica solo conoce la interfaz de envío (enviarConfirmacion).
+    this.correo = correo || { enviarConfirmacion: async function(){} };
 
     // Variante 4: se expone sobre el modelo para que la capa API la llame,
     // pero no toca this.cad ni this.log (no hay estado que persistir).
@@ -101,12 +111,24 @@ function Modelo(cad, log){
             return { error: "Ya existe una cuenta con ese email", codigo: 409 };
         }
         let hash = await seguridad.hashear(password);
+        let token = crypto.randomBytes(32).toString("hex");
         await this.cad.agregarUsuario({
             email: email,
             password: hash,
             rol: ROL_USUARIO,
-            estado: ESTADO_PENDIENTE
+            estado: ESTADO_PENDIENTE,
+            origen: ORIGEN_LOCAL,
+            tokenConfirmacion: token,
+            expiraConfirmacion: Date.now() + EXPIRA_CONFIRMACION_MS
         });
+        try{
+            await this.correo.enviarConfirmacion(email, token);
+        }
+        catch(e){
+            await this.cad.eliminarUsuario(email);
+            await this.log.registrar("correo_fallido", { email: email, error: e.message });
+            return { error: "No se pudo enviar el correo de confirmación. Inténtalo de nuevo más tarde.", codigo: 503 };
+        }
         await this.log.registrar("registro", { email: email });
         return { email: email, estado: ESTADO_PENDIENTE };
     };
@@ -131,21 +153,32 @@ function Modelo(cad, log){
         return { email: email, creado: true };
     };
 
-    // Confirmación de cuenta. En el Hito 4 se disparará desde el enlace del correo.
-    this.confirmarCuenta = async function(email){
-        let usuario = await this.cad.obtenerUsuario(email);
-        if (!usuario){
-            return { error: "No existe ninguna cuenta con ese email", codigo: 404 };
+    // Confirmación de cuenta: el enlace del correo lleva un token de un solo uso
+    // que caduca a las 24 horas.
+    this.confirmarCuenta = async function(token){
+        if (typeof token !== "string" || token === ""){
+            return { error: "El enlace de confirmación no es válido", codigo: 400 };
         }
-        await this.cad.actualizarUsuario(email, { estado: ESTADO_CONFIRMADO });
-        await this.log.registrar("confirmacion_cuenta", { email: email });
-        return { email: email, estado: ESTADO_CONFIRMADO };
+        let usuario = await this.cad.obtenerUsuarioPorToken(token);
+        if (!usuario){
+            return { error: "El enlace de confirmación no es válido o ya se ha usado", codigo: 404 };
+        }
+        if (Date.now() > usuario.expiraConfirmacion){
+            return { error: "El enlace de confirmación ha caducado. Regístrate de nuevo.", codigo: 410 };
+        }
+        await this.cad.actualizarUsuario(usuario.email, {
+            estado: ESTADO_CONFIRMADO,
+            tokenConfirmacion: null,
+            expiraConfirmacion: null
+        });
+        await this.log.registrar("confirmacion_cuenta", { email: usuario.email });
+        return { email: usuario.email, estado: ESTADO_CONFIRMADO };
     };
 
     // Inicio de sesión local (email + contraseña).
     this.autenticar = async function(email, password){
         let usuario = await this.cad.obtenerUsuario(email);
-        if (!usuario){
+        if (!usuario || usuario.estado === ESTADO_ELIMINADO || !usuario.password){
             await this.log.registrar("login_fallido", { email: email, motivo: "no_existe" });
             return { error: "Credenciales incorrectas", codigo: 401 };
         }
@@ -162,6 +195,36 @@ function Modelo(cad, log){
         return { email: usuario.email, rol: usuario.rol };
     };
 
+    // Inicio de sesión con Google. El correo de Google ya está verificado, así que
+    // la cuenta queda confirmada. Una cuenta eliminada no vuelve a entrar.
+    this.iniciarConGoogle = async function(email){
+        if (!email || !RE_EMAIL.test(email)){
+            return { error: "Google no ha devuelto un email válido", codigo: 400 };
+        }
+        let usuario = await this.cad.obtenerUsuario(email);
+        if (usuario && usuario.estado === ESTADO_ELIMINADO){
+            await this.log.registrar("login_fallido", { email: email, motivo: "eliminado", origen: ORIGEN_GOOGLE });
+            return { error: "Esta cuenta ha sido eliminada", codigo: 403 };
+        }
+        if (!usuario){
+            await this.cad.agregarUsuario({
+                email: email,
+                password: null,
+                rol: ROL_USUARIO,
+                estado: ESTADO_CONFIRMADO,
+                origen: ORIGEN_GOOGLE,
+                tokenConfirmacion: null,
+                expiraConfirmacion: null
+            });
+        }
+        else if (usuario.estado !== ESTADO_CONFIRMADO){
+            await this.cad.actualizarUsuario(email, { estado: ESTADO_CONFIRMADO, tokenConfirmacion: null, expiraConfirmacion: null });
+        }
+        usuario = await this.cad.obtenerUsuario(email);
+        await this.log.registrar("login", { email: email, origen: ORIGEN_GOOGLE });
+        return { email: usuario.email, rol: usuario.rol };
+    };
+
     // Listado de usuarios: solo el administrador.
     this.listarUsuarios = async function(solicitante){
         if (!solicitante || solicitante.rol !== ROL_ADMIN){
@@ -169,7 +232,9 @@ function Modelo(cad, log){
             return { error: "Se requiere rol de administrador", codigo: 403 };
         }
         let usuarios = await this.cad.obtenerUsuarios();
-        let lista = usuarios.map(function(u){
+        let lista = usuarios
+            .filter(function(u){ return u.estado !== ESTADO_ELIMINADO; })
+            .map(function(u){
             return { email: u.email, rol: u.rol, estado: u.estado };
         });
         return { usuarios: lista };
@@ -198,10 +263,10 @@ function Modelo(cad, log){
             return { error: "Solo puedes eliminar tu propia cuenta", codigo: 403 };
         }
         let usuario = await this.cad.obtenerUsuario(email);
-        if (!usuario){
+        if (!usuario || usuario.estado === ESTADO_ELIMINADO){
             return { error: "No existe ninguna cuenta con ese email", codigo: 404 };
         }
-        await this.cad.eliminarUsuario(email);
+        await this.cad.actualizarUsuario(email, { estado: ESTADO_ELIMINADO, password: null, tokenConfirmacion: null, expiraConfirmacion: null });
         await this.log.registrar("eliminar_usuario", { email: email, por: solicitante.email });
         return { email: email };
     };
@@ -213,5 +278,6 @@ module.exports = {
     ROL_USUARIO,
     ROL_ADMIN,
     ESTADO_PENDIENTE,
-    ESTADO_CONFIRMADO
+    ESTADO_CONFIRMADO,
+    ESTADO_ELIMINADO
 };

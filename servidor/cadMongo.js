@@ -9,7 +9,8 @@ const usuarioSchema = new mongoose.Schema({
     estado:             { type: String, default: "pendiente" },
     origen:             { type: String, default: "local" },
     tokenConfirmacion:  { type: String, default: null, index: true, sparse: true },
-    expiraConfirmacion: { type: Number, default: null }
+    expiraConfirmacion: { type: Number, default: null },
+    fallos:             { type: [String], default: [] }
 }, { versionKey: false });
 
 const logSchema = new mongoose.Schema({

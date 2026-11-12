@@ -36,6 +36,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.65.0",
-    "jasmine": "^7.0.0"
+    "jasmine": "^7.0.0",
+    "socket.io-client": "^4.8.4"
   }
 }

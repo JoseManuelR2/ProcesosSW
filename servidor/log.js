@@ -1,5 +1,10 @@
 // Registro (log) de la actividad relevante del sistema.
-// Escribe en la consola y, si la CAD lo permite, lo persiste.
+// Escribe en la consola (con los emails enmascarados) y, si la CAD lo permite,
+// lo persiste completo para la auditoría.
+function enmascarar(texto){
+    return texto.replace(/([A-Za-z0-9._%+-])[A-Za-z0-9._%+-]*@/g, "$1***@");
+}
+
 function Log(cad){
     this.cad = cad;
 
@@ -9,7 +14,7 @@ function Log(cad){
             evento: evento,
             datos: datos || {}
         };
-        console.log("[LOG] " + JSON.stringify(entrada));
+        console.log("[LOG] " + enmascarar(JSON.stringify(entrada)));
         if (this.cad && this.cad.registrarLog){
             try{
                 await this.cad.registrarLog(entrada);
@@ -21,4 +26,4 @@ function Log(cad){
     }
 }
 
-module.exports = { Log };
+module.exports = { Log, enmascarar };

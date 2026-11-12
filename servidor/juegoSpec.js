@@ -1,187 +1,178 @@
-const { GestorPartidas, MAZE, STARTS, EXIT, esPared, distancia, parsearCodigo } = require("./juego.js");
+const { GestorPartidas, EMAIL_BOT } = require("./juego.js");
 
-describe("Maze Duel (capa lógica)", function(){
+const ANA = "ana@test.com";
+const LUIS = "luis@test.com";
+
+// Programas de ejemplo (árbol de bloques).
+const SUBIR_Y_DERECHA = [
+    { tipo: "mv", dir: "down" }, { tipo: "mv", dir: "down" }, { tipo: "mv", dir: "down" }, { tipo: "mv", dir: "down" },
+    { tipo: "mv", dir: "right" }, { tipo: "mv", dir: "right" }, { tipo: "mv", dir: "right" },
+    { tipo: "mv", dir: "down" }, { tipo: "mv", dir: "down" },
+    { tipo: "mv", dir: "left" }, { tipo: "mv", dir: "left" }, { tipo: "mv", dir: "left" },
+    { tipo: "mv", dir: "down" }
+];
+
+describe("Maze Duel (capa lógica de partidas)", function(){
     let gestor;
 
     beforeEach(function(){
         gestor = new GestorPartidas();
     });
 
-    it("crea una partida con un jugador", function(){
-        let p = gestor.crear("ana@test.com");
-        expect(p.id).toBeDefined();
-        expect(p.jugadores.length).toBe(1);
+    it("crea una partida en espera con el nivel elegido", function(){
+        let p = gestor.crear(ANA, "cruce");
         expect(p.estado).toBe("esperando");
+        expect(p.jugadores).toEqual([ANA]);
+        expect(p.nivel.id).toBe("cruce");
+    });
+
+    it("rechaza un nivel que no existe", function(){
+        expect(gestor.crear(ANA, "inventado").error).toBeDefined();
     });
 
     it("un segundo jugador se une y la partida pasa a programando", function(){
-        let p = gestor.crear("ana@test.com");
-        let res = p.agregarJugador("luis@test.com");
+        let p = gestor.crear(ANA);
+        let res = p.agregarJugador(LUIS);
         expect(res.error).toBeUndefined();
-        expect(p.jugadores.length).toBe(2);
         expect(p.estado).toBe("programando");
     });
 
-    it("no se puede unir un tercer jugador", function(){
-        let p = gestor.crear("ana@test.com");
-        p.agregarJugador("luis@test.com");
-        let res = p.agregarJugador("pedro@test.com");
-        expect(res.error).toBeDefined();
-    });
-
-    it("no se puede unir el mismo jugador dos veces", function(){
-        let p = gestor.crear("ana@test.com");
-        let res = p.agregarJugador("ana@test.com");
-        expect(res.error).toBeDefined();
-    });
-
-    it("programa comandos válidos", function(){
-        let p = gestor.crear("ana@test.com");
-        p.agregarJugador("luis@test.com");
-        let res = p.programar("ana@test.com", "mv right\nmv down\nmv right");
+    it("unirse otra vez no es un error: devuelve yaEsta (botón Jugar)", function(){
+        let p = gestor.crear(ANA);
+        p.agregarJugador(LUIS);
+        let res = p.agregarJugador(LUIS);
         expect(res.error).toBeUndefined();
-        expect(p.programas["ana@test.com"]).toEqual(["right", "down", "right"]);
+        expect(res.yaEsta).toBeTrue();
     });
 
-    it("rechaza comandos inválidos", function(){
-        let p = gestor.crear("ana@test.com");
-        p.agregarJugador("luis@test.com");
-        let res = p.programar("ana@test.com", "mv right\nmv diagonal");
-        expect(res.error).toBeDefined();
+    it("no se puede unir un tercer jugador", function(){
+        let p = gestor.crear(ANA);
+        p.agregarJugador(LUIS);
+        expect(p.agregarJugador("pedro@test.com").error).toBeDefined();
     });
 
-    it("rechaza más de 50 comandos", function(){
-        let p = gestor.crear("ana@test.com");
-        p.agregarJugador("luis@test.com");
-        let cmds = [];
-        for (let i = 0; i < 51; i++){ cmds.push("mv right"); }
-        let res = p.programar("ana@test.com", cmds.join("\n"));
-        expect(res.error).toBeDefined();
+    it("programa válido en fase programando", function(){
+        let p = gestor.crear(ANA);
+        p.agregarJugador(LUIS);
+        let res = p.programar(ANA, [{ tipo: "mv", dir: "right" }]);
+        expect(res.ok).toBeTrue();
+        expect(res.comandos).toBe(1);
+    });
+
+    it("no admite programas mientras la partida espera rival (fase incorrecta)", function(){
+        let p = gestor.crear(ANA);
+        expect(p.programar(ANA, [{ tipo: "mv", dir: "right" }]).error).toBeDefined();
+    });
+
+    it("rechaza un programa con bloques no válidos", function(){
+        let p = gestor.crear(ANA);
+        p.agregarJugador(LUIS);
+        expect(p.programar(ANA, [{ tipo: "mv", dir: "diagonal" }]).error).toBeDefined();
+    });
+
+    it("rechaza un programa que no mueve al robot", function(){
+        let p = gestor.crear(ANA);
+        p.agregarJugador(LUIS);
+        expect(p.programar(ANA, [{ tipo: "if", cond: "wall right", cuerpo: [{ tipo: "mv", dir: "up" }] }]).error).toBeDefined();
     });
 
     it("un jugador que no está en la partida no puede programar", function(){
-        let p = gestor.crear("ana@test.com");
-        p.agregarJugador("luis@test.com");
-        let res = p.programar("pedro@test.com", "mv right");
-        expect(res.error).toBeDefined();
+        let p = gestor.crear(ANA);
+        p.agregarJugador(LUIS);
+        expect(p.programar("pedro@test.com", [{ tipo: "mv", dir: "right" }]).error).toBeDefined();
     });
 
-    it("ejecuta y detecta al ganador que llega a la salida", function(){
-        let p = gestor.crear("ana@test.com");
-        p.agregarJugador("luis@test.com");
-        // Ana: camino a la salida (8,1) desde (1,1)
-        p.programar("ana@test.com", "mv down\nmv down\nmv down\nmv down\nmv right\nmv right\nmv right\nmv down\nmv down\nmv left\nmv left\nmv left\nmv down");
-        p.programar("luis@test.com", "mv right\nmv right\nmv right\nmv right\nmv right\nmv right\nmv right");
+    it("gana quien llega primero a la salida", function(){
+        let p = gestor.crear(ANA);
+        p.agregarJugador(LUIS);
+        p.programar(ANA, SUBIR_Y_DERECHA);
+        p.programar(LUIS, [{ tipo: "mv", dir: "right" }]);
         let res = p.ejecutar();
-        expect(res.ganador).toBe("ana@test.com");
+        expect(res.error).toBeUndefined();
+        expect(res.ganador).toBe(ANA);
         expect(res.razon).toBe("llegó a la salida");
+        expect(p.estado).toBe("terminada");
     });
 
-    it("el que llega con menos comandos gana si ambos llegan", function(){
-        let p = gestor.crear("ana@test.com");
-        p.agregarJugador("luis@test.com");
-        p.programar("ana@test.com", "mv down\nmv down\nmv down\nmv down\nmv right\nmv right\nmv right\nmv down\nmv down\nmv left\nmv left\nmv left\nmv down");
-        p.programar("luis@test.com", "mv down\nmv down\nmv down\nmv down\nmv right\nmv right\nmv right\nmv down\nmv down\nmv left\nmv left\nmv left\nmv down\nmv right");
+    it("ejecutar dos veces no cambia una partida terminada", function(){
+        let p = gestor.crear(ANA);
+        p.agregarJugador(LUIS);
+        p.programar(ANA, SUBIR_Y_DERECHA);
+        p.programar(LUIS, [{ tipo: "mv", dir: "right" }]);
+        p.ejecutar();
+        expect(p.ejecutar().error).toBeDefined();
+    });
+
+    it("no se puede reprogramar después de terminar", function(){
+        let p = gestor.crear(ANA);
+        p.agregarJugador(LUIS);
+        p.programar(ANA, SUBIR_Y_DERECHA);
+        p.programar(LUIS, [{ tipo: "mv", dir: "right" }]);
+        p.ejecutar();
+        expect(p.programar(ANA, [{ tipo: "mv", dir: "right" }]).error).toBeDefined();
+    });
+
+    it("el temporizador arranca solo una vez y se puede cerrar el programa de quien no ha enviado", function(){
+        let p = gestor.crear(ANA);
+        p.agregarJugador(LUIS);
+        p.programar(ANA, SUBIR_Y_DERECHA);
+        let arranco = p.arrancarTemporizador(60, function(){}, function(){});
+        let otraVez = p.arrancarTemporizador(60, function(){}, function(){});
+        expect(arranco).toBeTrue();
+        expect(otraVez).toBeFalse();
+        p.cerrarProgramasPendientes();
+        expect(p.programas[LUIS]).toEqual([]);
+        expect(p.ambosProgramados()).toBeTrue();
+        p.pararTemporizador();
+    });
+
+    it("con un bot, la partida se puede ejecutar en cuanto el humano programa", function(){
+        let p = gestor.crear(ANA);
+        expect(p.agregarBot()).toBeTrue();
+        expect(p.jugadores).toEqual([ANA, EMAIL_BOT]);
+        expect(p.estado).toBe("programando");
+        p.programar(ANA, [{ tipo: "mv", dir: "right" }]);
+        expect(p.ambosProgramados()).toBeTrue();
         let res = p.ejecutar();
-        expect(res.ganador).toBe("ana@test.com");
+        expect(res.error).toBeUndefined();
     });
 
-    it("si ninguno llega, gana el que esté más cerca", function(){
-        let p = gestor.crear("ana@test.com");
-        p.agregarJugador("luis@test.com");
-        p.programar("ana@test.com", "mv right\nmv right");
-        p.programar("luis@test.com", "mv down\nmv down\nmv down\nmv down");
-        let res = p.ejecutar();
-        expect(res.ganador).toBeDefined();
-        expect(res.razon).toBe("más cerca de la salida");
+    it("enCursoDe devuelve la partida en programando del usuario (reconexión)", function(){
+        let p = gestor.crear(ANA);
+        expect(gestor.enCursoDe(ANA)).toBeNull();
+        p.agregarJugador(LUIS);
+        expect(gestor.enCursoDe(LUIS)).toBe(p);
     });
 
-    it("no se puede ejecutar sin programas", function(){
-        let p = gestor.crear("ana@test.com");
-        p.agregarJugador("luis@test.com");
-        let res = p.ejecutar();
-        expect(res.error).toBeDefined();
-    });
-
-    it("el muro bloquea el movimiento", function(){
-        let p = gestor.crear("ana@test.com");
-        p.agregarJugador("luis@test.com");
-        // Intentar atravesar una pared.
-        p.programar("ana@test.com", "mv up"); // (1,1) -> (0,1) que es pared
-        p.programar("luis@test.com", "mv down\nmv down");
-        let res = p.ejecutar();
-        // Ana no se mueve porque (0,1) es pared.
-        expect(res.posicionesFinales["ana@test.com"]).toEqual([1, 1]);
-    });
-
-    it("listar devuelve todas las partidas", function(){
-        gestor.crear("ana@test.com");
-        gestor.crear("luis@test.com");
+    it("listar devuelve todas las partidas con su nivel", function(){
+        gestor.crear(ANA, "clasico");
+        gestor.crear(LUIS, "zigzag");
         let lista = gestor.listar();
         expect(lista.length).toBe(2);
+        expect(lista.map(function(x){ return x.nivel; }).sort()).toEqual(["clasico", "zigzag"]);
     });
 
-    it("cancelar elimina la partida", function(){
-        let p = gestor.crear("ana@test.com");
-        let res = gestor.cancelar(p.id);
-        expect(res.ok).toBe(true);
+    it("cancelar elimina la partida y da error si no existe", function(){
+        let p = gestor.crear(ANA);
+        expect(gestor.cancelar(p.id).ok).toBeTrue();
         expect(gestor.obtener(p.id)).toBeNull();
+        expect(gestor.cancelar("P999").error).toBeDefined();
     });
 
-    it("cancelar partida inexistente da error", function(){
-        let res = gestor.cancelar("P999");
-        expect(res.error).toBeDefined();
+    it("limpiar borra terminadas antiguas y esperando abandonadas, no las recientes", function(){
+        let vieja = gestor.crear(ANA);
+        vieja.creada = Date.now() - 11 * 60 * 1000;
+        let reciente = gestor.crear(LUIS);
+        let ahora = Date.now();
+        expect(gestor.limpiar(ahora)).toBe(1);
+        expect(gestor.obtener(vieja.id)).toBeNull();
+        expect(gestor.obtener(reciente.id)).not.toBeNull();
     });
 
-    it("el laberinto tiene paredes en los bordes", function(){
-        expect(esPared(0, 0)).toBe(true);
-        expect(esPared(0, 5)).toBe(true);
-        expect(esPared(9, 9)).toBe(true);
-    });
-
-    it("la salida no es pared", function(){
-        expect(esPared(EXIT[0], EXIT[1])).toBe(false);
-    });
-
-    it("distancia Manhattan funciona", function(){
-        expect(distancia([1,1], [8,1])).toBe(7);
-        expect(distancia([1,1], [1,1])).toBe(0);
-    });
-});
-
-describe("parsearCodigo (mini lenguaje)", function(){
-    it("parsea mv simple", function(){
-        expect(parsearCodigo("mv right\nmv down")).toEqual(["right", "down"]);
-    });
-
-    it("parsea repeat", function(){
-        expect(parsearCodigo("repeat 3\n  mv right\nend")).toEqual(["right", "right", "right"]);
-    });
-
-    it("parsea for como alias de repeat", function(){
-        expect(parsearCodigo("for 2\n  mv up\nend")).toEqual(["up", "up"]);
-    });
-
-    it("parsea while true", function(){
-        let r = parsearCodigo("while true\n  mv right\nend");
-        expect(r.length).toBeGreaterThan(0);
-        expect(r.every(function(c){ return c === "right"; })).toBe(true);
-    });
-
-    it("ignora comentarios", function(){
-        expect(parsearCodigo("# comentario\nmv left")).toEqual(["left"]);
-    });
-
-    it("rechaza comando inválido", function(){
-        expect(parsearCodigo("mv diagonal")).toBeNull();
-    });
-
-    it("rechaza línea no reconocida", function(){
-        expect(parsearCodigo("saltar")).toBeNull();
-    });
-
-    it("bloques anidados", function(){
-        let r = parsearCodigo("repeat 2\n  repeat 2\n    mv right\n  end\nend");
-        expect(r).toEqual(["right","right","right","right"]);
+    it("los identificadores de partida no son secuenciales", function(){
+        let a = gestor.crear(ANA);
+        let b = gestor.crear(LUIS);
+        expect(a.id).not.toBe(b.id);
+        expect(a.id).toMatch(/^P[0-9a-f]{6}$/);
     });
 });

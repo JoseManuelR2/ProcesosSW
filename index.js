@@ -1,6 +1,7 @@
 // Punto de entrada del backend.
-// Arranca Express, conecta la capa de acceso a datos, monta la API y siembra
-// el primer administrador.
+// Arranca Express, conecta la capa de acceso a datos, monta la API y el juego en
+// tiempo real, y siembra el primer administrador.
+// crearServidor() se exporta para las pruebas de integración.
 require("dotenv").config();
 
 const crypto = require("crypto");
@@ -18,82 +19,61 @@ const { crearCorreo } = require("./servidor/correo.js");
 const { montarOAuth } = require("./servidor/oauth.js");
 const api = require("./servidor/api.js");
 const { GestorPartidas } = require("./servidor/juego.js");
+const { montarSockets } = require("./servidor/sockets.js");
+const { cabecerasSeguridad } = require("./servidor/cabeceras.js");
 
-async function main(){
-    const PORT = process.env.PORT || 3000;
-    const BASE_URL = process.env.BASE_URL || ("http://localhost:" + PORT);
-    const EN_PRODUCCION = process.env.NODE_ENV === "production";
+const CARPETA_CLIENTE = path.join(__dirname, "cliente");
+const CARPETA_COMPARTIDO = path.join(__dirname, "compartido");
+const ESPERA_BOT_MS = 30 * 1000;
+const SEGUNDOS_TEMPORIZADOR = 15;
 
-    if (EN_PRODUCCION && !process.env.SESSION_SECRET){
-        throw new Error("Falta la variable SESSION_SECRET en producción");
-    }
-    if (EN_PRODUCCION && !process.env.SMTP_HOST){
-        throw new Error("Falta la configuración de correo (SMTP_HOST) en producción");
-    }
+async function crearServidor(config){
+    const log = new Log(config.cad);
+    const modelo = new Modelo(config.cad, log, config.correo);
 
-    // Capa de acceso a datos.
-    const cad = cadFactory.crearCad(process.env.MONGODB_URI);
-    if (cad.conectar){
-        await cad.conectar(process.env.MONGODB_URI);
-        console.log("Conectado a MongoDB");
-    }
-
-    // Capa lógica (con el servicio de correo inyectado).
-    const log = new Log(cad);
-    const correo = crearCorreo({
-        host: process.env.SMTP_HOST,
-        port: Number(process.env.SMTP_PORT || 587),
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-        from: process.env.MAIL_FROM,
-        baseUrl: BASE_URL
-    });
-    const modelo = new Modelo(cad, log, correo);
-
-    // Gestor de partidas del sprint 2.
-    const gestorPartidas = new GestorPartidas();
-
-    // Semilla del primer administrador.
-    if (process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD){
-        let res = await modelo.crearAdmin(process.env.ADMIN_EMAIL, process.env.ADMIN_PASSWORD);
+    if (config.adminEmail && config.adminPassword){
+        let res = await modelo.crearAdmin(config.adminEmail, config.adminPassword);
         if (res.creado){
             console.log("Administrador creado: " + res.email);
         }
     }
 
+    const gestor = new GestorPartidas();
+
     const app = express();
     app.set("trust proxy", 1);
+    app.use(cabecerasSeguridad);
     app.use(express.json());
 
     // Sesión. Con MongoDB se persiste en el almacén; sin él, en memoria.
-    // En local, si no hay SESSION_SECRET se genera uno aleatorio al arrancar
-    // (las sesiones no sobreviven a un reinicio, pero no hay ningún secreto en el código).
+    // Sin SESSION_SECRET (solo en local) se genera uno aleatorio al arrancar.
     let opcionesSesion = {
-        secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex"),
+        secret: config.sessionSecret || crypto.randomBytes(32).toString("hex"),
         resave: false,
         saveUninitialized: false,
         cookie: {
             httpOnly: true,
             sameSite: "lax",
-            secure: process.env.NODE_ENV === "production"
+            secure: !!config.produccion
         }
     };
-    if (process.env.MONGODB_URI){
-        opcionesSesion.store = MongoStore.create({ mongoUrl: process.env.MONGODB_URI });
+    if (config.mongoUri){
+        opcionesSesion.store = MongoStore.create({ mongoUrl: config.mongoUri });
     }
-    app.use(session(opcionesSesion));
+    const sesion = session(opcionesSesion);
+    app.use(sesion);
 
-    // Frontend: se sirve únicamente la carpeta cliente (nunca el resto del proyecto).
-    // Sin caché para que siempre se sirva la versión más reciente.
-    app.use(express.static(path.join(__dirname, "cliente"), { maxAge: 0, etag: false }));
-
-    // API REST (capa de presentación del backend) y autorización con Google.
-    api.montarApi(app, modelo);
-    montarOAuth(app, modelo, {
-        clientID: process.env.GOOGLE_CLIENT_ID,
-        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-        callbackURL: BASE_URL + "/auth/google/callback"
+    app.get("/health", function(req, res){
+        res.send({ estado: "ok" });
     });
+
+    // Frontend y capa lógica compartida: solo se sirven estas dos carpetas.
+    // Sin caché para que siempre se sirva la versión más reciente.
+    app.use("/compartido", express.static(CARPETA_COMPARTIDO, { maxAge: 0, etag: false }));
+    app.use(express.static(CARPETA_CLIENTE, { maxAge: 0, etag: false }));
+
+    api.montarApi(app, modelo);
+    montarOAuth(app, modelo, config.oauth || {});
 
     // Cuerpo JSON mal formado o demasiado grande: el contrato general pide
     // responder 400 con {"error": "..."} en lugar de un 500 genérico.
@@ -110,137 +90,83 @@ async function main(){
         res.status(500).send({ error: "Error interno del servidor" });
     });
 
-    // Servidor HTTP + Socket.IO para el juego en tiempo real.
     const server = http.createServer(app);
     const io = new Server(server);
-
-    // Mapa de socket.id -> email (para saber quién juega).
-    const socketEmail = {};
-
-    io.on("connection", function(socket){
-        // El cliente envía su email al conectarse.
-        socket.on("identificar", function(email){
-            console.log("identificar: " + email + " (socket " + socket.id + ")");
-            socketEmail[socket.id] = email;
-        });
-
-        // Crear partida.
-        socket.on("crearPartida", function(){
-            let email = socketEmail[socket.id];
-            console.log("crearPartida de " + (email || "anonimo"));
-            if (!email){ socket.emit("error", "No identificado"); return; }
-            let partida = gestorPartidas.crear(email);
-            socket.join(partida.id);
-            socket.emit("partidaCreada", { id: partida.id, partida: serializar(partida) });
-            io.emit("listaPartidas", gestorPartidas.listar());
-        });
-
-        // Unirse a partida.
-        socket.on("unirsePartida", function(id){
-            let email = socketEmail[socket.id];
-            if (!email){ return; }
-            let partida = gestorPartidas.obtener(id);
-            if (!partida){ socket.emit("error", "Partida no encontrada"); return; }
-            let res = partida.agregarJugador(email);
-            if (res.error){ socket.emit("error", res.error); return; }
-            socket.join(id);
-            io.to(id).emit("partidaActualizada", serializar(partida));
-            io.emit("listaPartidas", gestorPartidas.listar());
-        });
-
-        // Programar movimientos.
-        socket.on("programar", function(data){
-            let email = socketEmail[socket.id];
-            if (!email){ socket.emit("error", "No identificado"); return; }
-            let partida = gestorPartidas.obtener(data.id);
-            if (!partida){ socket.emit("error", "Partida no encontrada"); return; }
-            let res = partida.programar(email, data.codigo);
-            if (res.error){ socket.emit("error", res.error); return; }
-            socket.emit("programado", { ok: true, comandos: res.comandos });
-            console.log("Programado por " + email + " en " + data.id + ". Ambos: " + partida.ambosProgramados());
-
-            // Si es el primero en programar, iniciar temporizador de 15s.
-            if (partida.quienProgramoPrimero === email && !partida.ambosProgramados()){
-                partida.tiempoRestante = 15;
-                io.to(data.id).emit("timerInicio", { segundos: 15, email: email });
-                partida.timer = setInterval(function(){
-                    partida.tiempoRestante--;
-                    io.to(data.id).emit("timerTick", { segundos: partida.tiempoRestante });
-                    if (partida.tiempoRestante <= 0){
-                        clearInterval(partida.timer);
-                        partida.timer = null;
-                        // Auto-enviar programa vacío para el otro jugador si no ha programado.
-                        let otro = partida.jugadores.find(function(e){ return e !== email; });
-                        if (otro && !partida.programas[otro]){
-                            partida.programar(otro, "mv right");
-                        }
-                        if (partida.ambosProgramados()){
-                            let resultado = partida.ejecutar();
-                            io.to(data.id).emit("resultado", resultado);
-                            io.emit("listaPartidas", gestorPartidas.listar());
-                        }
-                    }
-                }, 1000);
-            }
-
-            if (partida.ambosProgramados()){
-                if (partida.timer){ clearInterval(partida.timer); partida.timer = null; }
-                // Ejecutar automáticamente cuando ambos están listos.
-                let resultado = partida.ejecutar();
-                io.to(data.id).emit("resultado", resultado);
-                io.emit("listaPartidas", gestorPartidas.listar());
-                console.log("Auto-ejecutado " + data.id);
-            }
-        });
-
-        // Ejecutar la partida.
-        socket.on("ejecutar", function(id){
-            let partida = gestorPartidas.obtener(id);
-            if (!partida){ socket.emit("error", "Partida no encontrada"); return; }
-            let resultado = partida.ejecutar();
-            io.to(id).emit("resultado", resultado);
-            io.emit("listaPartidas", gestorPartidas.listar());
-        });
-
-        // Cancelar partida (solo admin).
-        socket.on("cancelarPartida", function(id){
-            let email = socketEmail[socket.id];
-            if (email !== process.env.ADMIN_EMAIL){ return; }
-            let p = gestorPartidas.obtener(id);
-            if (p && p.timer){ clearInterval(p.timer); p.timer = null; }
-            gestorPartidas.cancelar(id);
-            io.emit("listaPartidas", gestorPartidas.listar());
-            io.to(id).emit("partidaCancelada", { id: id });
-        });
-
-        // Solicitar lista de partidas.
-        socket.on("solicitarLista", function(){
-            console.log("solicitarLista de " + (socketEmail[socket.id] || "anonimo"));
-            socket.emit("listaPartidas", gestorPartidas.listar());
-        });
-
-        socket.on("disconnect", function(){
-            delete socketEmail[socket.id];
-        });
+    const sockets = montarSockets(io, {
+        gestor: gestor,
+        modelo: modelo,
+        sesion: sesion,
+        esperaBotMs: config.esperaBotMs || ESPERA_BOT_MS,
+        segundosTemporizador: config.segundosTemporizador || SEGUNDOS_TEMPORIZADOR
     });
 
-    function serializar(partida){
-        return {
-            id: partida.id,
-            creador: partida.creador,
-            jugadores: partida.jugadores.slice(),
-            estado: partida.estado,
-            resultado: partida.resultado
-        };
+    return {
+        app: app,
+        server: server,
+        io: io,
+        modelo: modelo,
+        gestor: gestor,
+        cerrar: function(){
+            sockets.cerrar();
+            return new Promise(function(resolver){ io.close(function(){ resolver(); }); });
+        }
+    };
+}
+
+async function main(){
+    const PORT = process.env.PORT || 3000;
+    const BASE_URL = process.env.BASE_URL || ("http://localhost:" + PORT);
+    const EN_PRODUCCION = process.env.NODE_ENV === "production";
+
+    if (EN_PRODUCCION && !process.env.SESSION_SECRET){
+        throw new Error("Falta la variable SESSION_SECRET en producción");
+    }
+    if (EN_PRODUCCION && !process.env.SMTP_HOST){
+        throw new Error("Falta la configuración de correo (SMTP_HOST) en producción");
     }
 
-    server.listen(PORT, function(){
+    const cad = cadFactory.crearCad(process.env.MONGODB_URI);
+    if (cad.conectar){
+        await cad.conectar(process.env.MONGODB_URI);
+        console.log("Conectado a MongoDB");
+    }
+
+    const correo = crearCorreo({
+        host: process.env.SMTP_HOST,
+        port: Number(process.env.SMTP_PORT || 587),
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+        from: process.env.MAIL_FROM,
+        baseUrl: BASE_URL
+    });
+
+    const servidor = await crearServidor({
+        cad: cad,
+        correo: correo,
+        baseUrl: BASE_URL,
+        mongoUri: process.env.MONGODB_URI,
+        sessionSecret: process.env.SESSION_SECRET,
+        produccion: EN_PRODUCCION,
+        adminEmail: process.env.ADMIN_EMAIL,
+        adminPassword: process.env.ADMIN_PASSWORD,
+        oauth: {
+            clientID: process.env.GOOGLE_CLIENT_ID,
+            clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+            callbackURL: BASE_URL + "/auth/google/callback"
+        }
+    });
+
+    servidor.server.listen(PORT, function(){
         console.log("App está escuchando en el puerto " + PORT);
         console.log("Ctrl+C para salir");
     });
 }
 
-main().catch(function(e){
-    console.error("No se pudo arrancar la aplicación:", e);
-    process.exit(1);
-});
+if (require.main === module){
+    main().catch(function(e){
+        console.error("No se pudo arrancar la aplicación:", e);
+        process.exit(1);
+    });
+}
+
+module.exports = { crearServidor };

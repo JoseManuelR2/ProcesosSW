@@ -68,7 +68,7 @@ jobs:
           service: procesossw
           region: europe-west1
           source: ./
-          flags: --allow-unauthenticated
+          flags: --allow-unauthenticated --max-instances=1
           env_vars: |
             NODE_ENV=production
             MONGODB_URI=${{ secrets.MONGODB_URI }}

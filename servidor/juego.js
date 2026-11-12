@@ -1,327 +1,231 @@
-// Juego del sprint 2: "Maze Duel" (Duelo de laberintos).
-// Dos jugadores programan una secuencia de movimientos (arriba, abajo, izquierda,
-// derecha) para resolver un laberinto. Se ejecutan simultáneamente y el primero
-// en llegar a la salida gana. Si ambos llegan al mismo tiempo, gana el que use
-// menos comandos. Si ninguno llega, gana el que esté más cerca de la salida.
-//
-// La lógica vive aquí (servidor) y se expone a los clientes por Socket.IO.
-// Los clientes solo envían comandos y reciben el estado.
+// Partidas de Maze Duel: estado de cada partida y gestor de partidas.
+// Las reglas del laberinto y la ejecución viven en compartido/laberinto.js; aquí
+// solo se gestionan jugadores, fases, temporizador y limpieza.
+const crypto = require("crypto");
+const L = require("../compartido/laberinto.js");
 
-// Laberinto fijo de 10x10. 1 = pared, 0 = pasillo.
-// S = salida (se marca como 0 en la matriz y se guarda por separado).
-const MAZE = [
-    [1,1,1,1,1,1,1,1,1,1],
-    [1,0,0,0,1,0,0,0,0,1],
-    [1,0,1,0,1,0,1,1,0,1],
-    [1,0,1,0,0,0,0,1,0,1],
-    [1,0,1,1,1,1,0,1,0,1],
-    [1,0,0,0,0,1,0,0,0,1],
-    [1,1,1,1,0,1,1,1,0,1],
-    [1,0,0,0,0,0,0,1,0,1],
-    [1,0,1,1,1,1,0,0,0,1],
-    [1,1,1,1,1,1,1,1,1,1]
-];
+const EMAIL_BOT = "bot@maze.local";
+const MINUTOS_TERMINADA = 5;
+const MINUTOS_ESPERANDO = 10;
 
-const STARTS = [[1,1], [8,8]];
-const EXIT = [8,1];
+function Partida(id, creador, nivel){
+    this.id = id;
+    this.nivel = nivel;
+    this.creador = creador;
+    this.jugadores = [creador];   // el índice define el inicio (0 = jugador 1, 1 = jugador 2)
+    this.programas = {};          // email -> programa (árbol de bloques)
+    this.estado = "esperando";    // esperando | programando | terminada
+    this.resultado = null;
+    this.primeroEnProgramar = null;
+    this.timer = null;
+    this.tiempoRestante = 0;
+    this.creada = Date.now();
+    this.finalizada = null;
+}
 
-const DIRECTIONS = {
-    up:    { dr: -1, dc: 0 },
-    down:  { dr: 1,  dc: 0 },
-    left:  { dr: 0,  dc: -1 },
-    right: { dr: 0,  dc: 1 }
+Partida.prototype.inicioDe = function(email){
+    return L.INICIOS[this.jugadores.indexOf(email)];
 };
 
-function esPared(r, c){
-    if (r < 0 || r >= MAZE.length || c < 0 || c >= MAZE[0].length){
-        return true;
-    }
-    return MAZE[r][c] === 1;
-}
-
-function mismaPos(a, b){
-    return a[0] === b[0] && a[1] === b[1];
-}
-
-function distancia(a, b){
-    return Math.abs(a[0]-b[0]) + Math.abs(a[1]-b[1]);
-}
-
-function parsearCodigo(codigo){
-    if (typeof codigo !== "string"){ return null; }
-    let lineas = codigo.split("\n").map(function(l){ return l.trim(); }).filter(function(l){ return l && !l.startsWith("#"); });
-    let resultado = [];
-
-    function parsearBloque(inicio, fin){
-        let res = [];
-        let j = inicio;
-        while (j < fin){
-            let linea = lineas[j];
-            if (linea.startsWith("repeat ") || linea.startsWith("for ")){
-                let partes = linea.split(/\s+/);
-                let n = parseInt(partes[1]);
-                if (isNaN(n) || n < 1){ n = 1; }
-                if (n > 10){ n = 10; }
-                let depth = 1;
-                let k = j + 1;
-                while (k < fin && depth > 0){
-                    if (lineas[k].startsWith("repeat ") || lineas[k].startsWith("for ") || lineas[k].startsWith("while ")){ depth++; }
-                    else if (lineas[k] === "end"){ depth--; }
-                    if (depth === 0){ break; }
-                    k++;
-                }
-                let bloque = parsearBloque(j + 1, k);
-                for (let r = 0; r < n; r++){
-                    if (res.length >= 50){ break; }
-                    res = res.concat(bloque);
-                    if (res.length > 50){ res = res.slice(0, 50); }
-                }
-                j = k + 1;
-            } else if (linea.startsWith("while ")){
-                let depth = 1;
-                let k = j + 1;
-                while (k < fin && depth > 0){
-                    if (lineas[k].startsWith("repeat ") || lineas[k].startsWith("for ") || lineas[k].startsWith("while ")){ depth++; }
-                    else if (lineas[k] === "end"){ depth--; }
-                    if (depth === 0){ break; }
-                    k++;
-                }
-                let bloque = parsearBloque(j + 1, k);
-                let limite = 50 - res.length;
-                for (let r = 0; r < limite; r++){
-                    res = res.concat(bloque);
-                    if (res.length >= 50){ break; }
-                }
-                j = k + 1;
-            } else if (linea === "end"){
-                j++;
-            } else if (linea.startsWith("mv ")){
-                let dir = linea.split(/\s+/)[1];
-                if (DIRECTIONS[dir]){
-                    res.push(dir);
-                } else {
-                    return null;
-                }
-                j++;
-            } else {
-                return null;
-            }
-        }
-        return res;
-    }
-
-    let flat = parsearBloque(0, lineas.length);
-    return flat;
-}
-
-// Una partida.
-function Partida(id, creador){
-    this.id = id;
-    this.creador = creador;       // email del creador
-    this.jugadores = [creador];   // emails
-    this.programas = {};          // email -> array de comandos
-    this.estado = "esperando";    // esperando | programando | ejecutando | terminada
-    this.resultado = null;
-    this.posiciones = {};         // email -> [r,c]
-    this.ronda = 0;
-    this.maxPasos = 50;
-    this.timer = null;            // handle del temporizador
-    this.tiempoRestante = 0;     // segundos restantes
-    this.quienProgramoPrimero = null; // email del primero en programar
-}
-
 Partida.prototype.agregarJugador = function(email){
-    if (this.jugadores.length >= 2){
-        return { error: "La partida ya tiene dos jugadores" };
-    }
     if (this.jugadores.indexOf(email) !== -1){
-        return { error: "Ya estás en esta partida" };
+        return { ok: true, yaEsta: true };
+    }
+    if (this.estado !== "esperando" || this.jugadores.length >= 2){
+        return { error: "La partida ya tiene dos jugadores" };
     }
     this.jugadores.push(email);
     this.estado = "programando";
-    this.posiciones[email] = STARTS[1].slice();
-    return { ok: true };
+    return { ok: true, yaEsta: false };
 };
 
-Partida.prototype.programar = function(email, codigo){
+// Un bot ocupa la segunda plaza y programa la ruta óptima de inmediato.
+Partida.prototype.agregarBot = function(){
+    if (this.jugadores.length !== 1){ return false; }
+    this.jugadores.push(EMAIL_BOT);
+    this.programas[EMAIL_BOT] = L.programaBot(this.nivel, this.inicioDe(EMAIL_BOT));
+    this.estado = "programando";
+    return true;
+};
+
+Partida.prototype.esBot = function(email){
+    return email === EMAIL_BOT;
+};
+
+Partida.prototype.programar = function(email, programa){
+    if (this.estado !== "programando"){
+        return { error: "La partida no admite programas en este momento" };
+    }
     if (this.jugadores.indexOf(email) === -1){
         return { error: "No estás en esta partida" };
     }
-    let comandos = parsearCodigo(codigo);
-    if (comandos === null){
-        return { error: "El código no es válido" };
+    let error = L.validar(programa);
+    if (error){
+        return { error: error };
     }
-    if (comandos.length === 0){
-        return { error: "El programa no contiene movimientos válidos" };
+    let traza = L.trazar(this.nivel, this.inicioDe(email), programa);
+    if (traza.camino.length === 0){
+        return { error: "El programa no mueve al robot" };
     }
-    if (comandos.length > this.maxPasos){
-        return { error: "Máximo " + this.maxPasos + " comandos" };
+    this.programas[email] = programa;
+    if (this.primeroEnProgramar === null){
+        this.primeroEnProgramar = email;
     }
-    this.programas[email] = comandos.slice();
-    // Si es el primero en programar, iniciar temporizador de 15s para el otro.
-    if (this.quienProgramoPrimero === null){
-        this.quienProgramoPrimero = email;
-    }
-    return { ok: true, comandos: comandos.slice() };
+    return { ok: true, comandos: traza.camino.length };
 };
 
 Partida.prototype.ambosProgramados = function(){
     return this.jugadores.length === 2 &&
-        this.programas[this.jugadores[0]] &&
-        this.programas[this.jugadores[1]];
+        this.jugadores.every(function(e){ return this.programas[e] !== undefined; }, this);
+};
+
+// Quien no haya programado a tiempo ejecuta un programa vacío (el robot no se mueve).
+Partida.prototype.cerrarProgramasPendientes = function(){
+    this.jugadores.forEach(function(e){
+        if (this.programas[e] === undefined){ this.programas[e] = []; }
+    }, this);
+};
+
+Partida.prototype.arrancarTemporizador = function(segundos, onTick, onFin){
+    if (this.timer){ return false; }
+    this.tiempoRestante = segundos;
+    let self = this;
+    this.timer = setInterval(function(){
+        self.tiempoRestante--;
+        onTick(self.tiempoRestante);
+        if (self.tiempoRestante <= 0){
+            self.pararTemporizador();
+            onFin();
+        }
+    }, 1000);
+    return true;
+};
+
+Partida.prototype.pararTemporizador = function(){
+    if (this.timer){
+        clearInterval(this.timer);
+        this.timer = null;
+    }
 };
 
 Partida.prototype.ejecutar = function(){
-    if (!this.ambosProgramados()){
+    if (this.estado !== "programando" || !this.ambosProgramados()){
         return { error: "Faltan programas" };
     }
-    this.estado = "ejecutando";
-    // Reiniciar posiciones.
-    this.posiciones[this.jugadores[0]] = STARTS[0].slice();
-    this.posiciones[this.jugadores[1]] = STARTS[1].slice();
-
-    let pasos = [];
-    let maxLen = Math.max(
-        this.programas[this.jugadores[0]].length,
-        this.programas[this.jugadores[1]].length
-    );
-
-    let ganador = null;
-    let razon = null;
-
-    for (let i = 0; i < maxLen; i++){
-        let snapshot = {
-            paso: i + 1,
-            posiciones: {}
-        };
-        for (let j = 0; j < this.jugadores.length; j++){
-            let email = this.jugadores[j];
-            let cmds = this.programas[email];
-            if (i < cmds.length){
-                let dir = DIRECTIONS[cmds[i]];
-                let pos = this.posiciones[email];
-                let nr = pos[0] + dir.dr;
-                let nc = pos[1] + dir.dc;
-                if (!esPared(nr, nc)){
-                    pos[0] = nr;
-                    pos[1] = nc;
-                }
-            }
-            snapshot.posiciones[email] = this.posiciones[email].slice();
-        }
-        pasos.push(snapshot);
-
-        // Comprobar si alguien llegó a la salida.
-        for (let j = 0; j < this.jugadores.length; j++){
-            let email = this.jugadores[j];
-            if (mismaPos(this.posiciones[email], EXIT)){
-                if (ganador === null){
-                    ganador = email;
-                }
-            }
-        }
-        if (ganador !== null){
-            break;
-        }
-    }
-
-    // Si ambos llegaron al mismo paso, gana el que tenga menos comandos.
-    if (ganador){
-        let llegoAmbos = this.jugadores.every(function(e){
-            return mismaPos(this.posiciones[e], EXIT);
-        }, this);
-        if (llegoAmbos){
-            let c0 = this.programas[this.jugadores[0]].length;
-            let c1 = this.programas[this.jugadores[1]].length;
-            if (c0 < c1){
-                ganador = this.jugadores[0];
-            } else if (c1 < c0){
-                ganador = this.jugadores[1];
-            }
-        }
-        razon = "llegó a la salida";
-    } else {
-        // Nadie llegó: gana el que esté más cerca.
-        let d0 = distancia(this.posiciones[this.jugadores[0]], EXIT);
-        let d1 = distancia(this.posiciones[this.jugadores[1]], EXIT);
-        if (d0 < d1){
-            ganador = this.jugadores[0];
-            razon = "más cerca de la salida";
-        } else if (d1 < d0){
-            ganador = this.jugadores[1];
-            razon = "más cerca de la salida";
-        } else {
-            ganador = null;
-            razon = "empate";
-        }
-    }
+    this.pararTemporizador();
+    let trazas = this.jugadores.map(function(e){
+        return L.trazar(this.nivel, this.inicioDe(e), this.programas[e]);
+    }, this);
+    let decision = L.resolver(this.nivel, trazas);
+    let ganador = decision.indiceGanador === null ? null : this.jugadores[decision.indiceGanador];
 
     this.estado = "terminada";
+    this.finalizada = Date.now();
     this.resultado = {
+        id: this.id,
+        nivel: this.nivel.id,
+        jugadores: this.jugadores.slice(),
         ganador: ganador,
-        razon: razon,
-        pasos: pasos,
+        razon: decision.razon,
+        pasos: L.lineaTemporal(this.nivel, this.jugadores.map(function(e){ return this.inicioDe(e); }, this), trazas),
         posicionesFinales: {
-            [this.jugadores[0]]: this.posiciones[this.jugadores[0]].slice(),
-            [this.jugadores[1]]: this.posiciones[this.jugadores[1]].slice()
+            [this.jugadores[0]]: trazas[0].final.slice(),
+            [this.jugadores[1]]: trazas[1].final.slice()
         },
         comandos: {
-            [this.jugadores[0]]: this.programas[this.jugadores[0]].length,
-            [this.jugadores[1]]: this.programas[this.jugadores[1]].length
+            [this.jugadores[0]]: trazas[0].camino.length,
+            [this.jugadores[1]]: trazas[1].camino.length
         }
     };
     return this.resultado;
 };
 
-// Gestor de partidas.
+Partida.prototype.resumen = function(){
+    return {
+        id: this.id,
+        creador: this.creador,
+        jugadores: this.jugadores.slice(),
+        estado: this.estado,
+        nivel: this.nivel.id,
+        resultado: this.resultado
+    };
+};
+
 function GestorPartidas(){
     this.partidas = {};
-    this.contador = 0;
 }
 
-GestorPartidas.prototype.crear = function(email){
-    this.contador++;
-    let id = "P" + this.contador;
-    let p = new Partida(id, email);
-    p.posiciones[email] = STARTS[0].slice();
-    this.partidas[id] = p;
-    return p;
+GestorPartidas.prototype.crear = function(email, idNivel){
+    let nivel = L.obtenerNivel(idNivel || "clasico");
+    if (!nivel){
+        return { error: "Nivel no válido" };
+    }
+    let id;
+    do {
+        id = "P" + crypto.randomBytes(3).toString("hex");
+    } while (this.partidas[id]);
+    let partida = new Partida(id, email, nivel);
+    this.partidas[id] = partida;
+    return partida;
 };
 
 GestorPartidas.prototype.obtener = function(id){
     return this.partidas[id] || null;
 };
 
-GestorPartidas.prototype.listar = function(){
-    let lista = [];
+// Partida en curso en la que participa el usuario (para reconectar tras recargar).
+GestorPartidas.prototype.enCursoDe = function(email){
+    let encontrada = null;
     for (let id in this.partidas){
         let p = this.partidas[id];
-        lista.push({
+        if (p.estado === "programando" && p.jugadores.indexOf(email) !== -1){
+            encontrada = p;
+        }
+    }
+    return encontrada;
+};
+
+GestorPartidas.prototype.listar = function(){
+    let self = this;
+    return Object.keys(this.partidas).map(function(id){
+        let p = self.partidas[id];
+        return {
             id: p.id,
             creador: p.creador,
             jugadores: p.jugadores.slice(),
             estado: p.estado,
+            nivel: p.nivel.id,
             resultado: p.resultado ? p.resultado.ganador : null
-        });
-    }
-    return lista;
+        };
+    });
 };
 
 GestorPartidas.prototype.cancelar = function(id){
     let p = this.partidas[id];
     if (!p){ return { error: "Partida no encontrada" }; }
-    p.estado = "cancelada";
+    p.pararTemporizador();
     delete this.partidas[id];
     return { ok: true };
 };
 
+// Borra partidas terminadas hace tiempo y partidas sin rival abandonadas.
+GestorPartidas.prototype.limpiar = function(ahora){
+    let self = this;
+    let borradas = 0;
+    Object.keys(this.partidas).forEach(function(id){
+        let p = self.partidas[id];
+        let terminada = p.estado === "terminada" && ahora - p.finalizada > MINUTOS_TERMINADA * 60000;
+        let abandonada = p.estado === "esperando" && ahora - p.creada > MINUTOS_ESPERANDO * 60000;
+        if (terminada || abandonada){
+            self.cancelar(id);
+            borradas++;
+        }
+    });
+    return borradas;
+};
+
 module.exports = {
     GestorPartidas,
-    MAZE,
-    STARTS,
-    EXIT,
-    DIRECTIONS,
-    esPared,
-    distancia,
-    parsearCodigo
+    Partida,
+    EMAIL_BOT
 };

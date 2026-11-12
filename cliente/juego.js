@@ -7,7 +7,7 @@ const L = window.Laberinto;
 const BLOQUES = [
     { tipo: "mv", etiqueta: "move", color: "#4C97FF", param: "right" },
     { tipo: "repeat", etiqueta: "repeat", color: "#FFAB19", contenedor: true, param: 3 },
-    { tipo: "while", etiqueta: "while", color: "#FFAB19", contenedor: true, param: "not exit" },
+    { tipo: "while", etiqueta: "while", color: "#FFAB19", contenedor: true, param: "exit visible" },
     { tipo: "if", etiqueta: "if", color: "#FF8C1A", contenedor: true, param: "wall right" },
     { tipo: "ifelse", etiqueta: "if/else", color: "#FF8C1A", contenedor: true, param: "wall right", conElse: true }
 ];
@@ -59,6 +59,13 @@ JuegoWeb.prototype.registrarEventos = function(){
         })
         .on("click", ".block-palette", function(){
             self.workspace.children.push(self.crearBloque($(this).data("tipo")));
+            self.renderWorkspace();
+        })
+        .on("click", ".block-not", function(e){
+            e.stopPropagation();
+            let blk = self.buscarBloque($(this).data("id"));
+            if (!blk){ return; }
+            blk.negada = !blk.negada;
             self.renderWorkspace();
         })
         .on("change", ".block-param", function(){
@@ -133,21 +140,24 @@ JuegoWeb.prototype.mostrarLobby = function(){
     this.vista = "lobby";
     this.partidaActual = null;
     this.cw.limpiarMensaje();
-    let opciones = L.NIVELES.map(function(n){
-        return '<option value="' + n.id + '">' + escapar(n.nombre) + '</option>';
+    let opciones = Object.keys(L.DIFICULTADES).map(function(clave){
+        let d = L.DIFICULTADES[clave];
+        return '<option value="' + d.id + '"' + (d.id === "mediano" ? " selected" : "") + '>' +
+            escapar(d.nombre) + ' (' + d.filas + '×' + d.columnas + ')</option>';
     }).join("");
     let html = '<div class="card p-4 mt-3"><h4>Maze Duel</h4>';
     html += '<p class="text-muted">Program your robot with blocks. First to reach the exit wins.</p>';
     html += '<ul class="small text-muted">';
-    html += '<li>Ice (❄) slides your robot until the next free square. A trap (✖) sends it back to your start.</li>';
-    html += '<li>Max 50 moves per program and 60 blocks.</li>';
+    html += '<li>Tiles: ice ❄ slides your robot, trap ✖ sends it back to your start, teleport ◎ jumps to its pair, arrows ↑↓←→ only let you in if you move that way.</li>';
+    html += '<li>Every game has a new random maze. Bigger maps have more special tiles and a higher move limit.</li>';
+    html += '<li>Max 60 blocks per program.</li>';
     html += '<li>The fastest robot to the exit wins. If nobody arrives, the closest one by path wins.</li>';
     html += '<li>Same number of moves and arrival: draw.</li>';
     html += '<li>After the first program is sent, the other player has 15 seconds. Otherwise their robot stays still.</li>';
     html += '<li>If nobody joins your game within 30 seconds, a bot plays against you.</li>';
     html += '</ul>';
-    html += '<div class="form-inline mb-2"><label class="mr-2" for="nivel">Level:</label>';
-    html += '<select id="nivel" class="form-control mr-2">' + opciones + '</select>';
+    html += '<div class="form-inline mb-2"><label class="mr-2" for="dificultad">Map size:</label>';
+    html += '<select id="dificultad" class="form-control mr-2">' + opciones + '</select>';
     html += '<button id="btnCrearPartida" class="btn btn-primary mr-2">Create game</button>';
     html += '<button id="btnRefrescar" class="btn btn-secondary">Refresh list</button></div>';
     html += '<div id="listaPartidas" class="mt-3"></div>';
@@ -160,7 +170,7 @@ JuegoWeb.prototype.crearPartida = function(){
         this.cw.mostrarMensaje("You must log in to create a game", "warning");
         return;
     }
-    this.socket.emit("crearPartida", { nivel: $("#nivel").val() });
+    this.socket.emit("crearPartida", { dificultad: $("#dificultad").val() });
 };
 
 JuegoWeb.prototype.actualizarListaPartidas = function(lista){
@@ -171,11 +181,11 @@ JuegoWeb.prototype.actualizarListaPartidas = function(lista){
         html += '<tr><td colspan="6" class="text-muted">No games. Create one.</td></tr>';
     }
     (lista || []).forEach(function(p){
-        let nivel = L.obtenerNivel(p.nivel);
+        let nivel = p.nivel || {};
         let soyParticipante = p.jugadores.indexOf(self.usuario.email) !== -1;
         html += '<tr>';
         html += '<td>' + escapar(p.id) + '</td>';
-        html += '<td>' + escapar(nivel ? nivel.nombre : p.nivel) + '</td>';
+        html += '<td>' + escapar(nivel.nombre || "?") + '</td>';
         html += '<td>' + escapar(p.creador) + '</td>';
         html += '<td>' + p.jugadores.map(escapar).join(", ") + '</td>';
         html += '<td>' + escapar(p.estado) + '</td>';
@@ -199,11 +209,14 @@ JuegoWeb.prototype.actualizarListaPartidas = function(lista){
 
 JuegoWeb.prototype.abrirEditor = function(partida){
     this.detenerAnimacion();
+    // Cada partida empieza con el programa vacío (no se arrastra el de la anterior).
+    this.workspace.children = [];
     this.partidaActual = partida;
     this.vista = "editor";
     this.cw.limpiarMensaje();
-    let nivel = L.obtenerNivel(partida.nivel);
+    let nivel = partida.nivel;
     let html = '<div class="card p-4 mt-3"><h4>Game ' + escapar(partida.id) + ' · ' + escapar(nivel.nombre) + '</h4>';
+    html += '<p class="small text-muted mb-1">Seed ' + nivel.semilla + ' · ' + nivel.filas + '×' + nivel.columnas + ' · max ' + L.maximoPasos(nivel) + ' moves</p>';
     html += '<p class="mb-1">' + this.textoIdentidad() + '</p>';
     html += '<p id="estadoPartida" class="mb-2"></p>';
     html += '<div class="row"><div class="col-md-3"><h6>Block palette (drag or click)</h6>';
@@ -287,7 +300,13 @@ JuegoWeb.prototype.renderParametro = function(blk){
         return '<input type="number" class="block-param" data-id="' + blk.id + '" value="' + escapar(blk.param) + '" min="1" max="' + L.LIMITES.repeticiones + '" style="width:60px;">';
     }
     let opciones = blk.tipo === "mv" ? DIRECCIONES : L.CONDICIONES;
-    let html = '<select class="block-param" data-id="' + blk.id + '">';
+    // Condición negada: botón "!" a la izquierda del desplegable.
+    let html = '';
+    if (blk.tipo !== "mv"){
+        html += '<button type="button" class="block-not' + (blk.negada ? " active" : "") + '" data-id="' + blk.id +
+            '" title="Negate condition (not)">!</button> ';
+    }
+    html += '<select class="block-param" data-id="' + blk.id + '">';
     opciones.forEach(function(o){
         html += '<option value="' + o + '"' + (blk.param === o ? ' selected' : '') + '>' + o + '</option>';
     });
@@ -372,9 +391,9 @@ JuegoWeb.prototype.programa = function(lista){
             return { tipo: "repeat", n: Number(blk.param), cuerpo: self.programa(blk.children) };
         }
         if (blk.tipo === "while"){
-            return { tipo: "while", cond: blk.param, cuerpo: self.programa(blk.children) };
+            return { tipo: "while", cond: blk.param, negada: !!blk.negada, cuerpo: self.programa(blk.children) };
         }
-        let nodo = { tipo: "if", cond: blk.param, cuerpo: self.programa(blk.children) };
+        let nodo = { tipo: "if", cond: blk.param, negada: !!blk.negada, cuerpo: self.programa(blk.children) };
         if (blk.tipo === "ifelse"){
             nodo.otro = self.programa(blk.elseChildren || []);
         }
@@ -384,7 +403,7 @@ JuegoWeb.prototype.programa = function(lista){
 
 JuegoWeb.prototype.probarPrograma = function(){
     this.detenerAnimacion();
-    let nivel = L.obtenerNivel(this.partidaActual.nivel);
+    let nivel = this.partidaActual.nivel;
     let programa = this.programa();
     let error = L.validar(programa);
     if (error){
@@ -392,7 +411,7 @@ JuegoWeb.prototype.probarPrograma = function(){
         return;
     }
     let indice = this.miIndice();
-    let traza = L.trazar(nivel, L.INICIOS[indice], programa);
+    let traza = L.trazar(nivel, nivel.inicios[indice], programa);
     if (traza.camino.length === 0){
         $("#previewLaberinto").html('<p class="text-warning small">Your program does not move the robot.</p>');
         return;
@@ -470,7 +489,7 @@ JuegoWeb.prototype.mostrarResultado = function(resultado){
     this.vista = "resultado";
     this.cw.limpiarMensaje();
     let self = this;
-    let nivel = L.obtenerNivel(resultado.nivel);
+    let nivel = resultado.nivel;
     let jugadores = resultado.jugadores;
     let miIndice = this.miIndice();
     let html = '<div class="card p-4 mt-3"><h4>Result · ' + escapar(nivel.nombre) + '</h4>';
@@ -539,7 +558,9 @@ JuegoWeb.prototype.renderizarLaberinto = function(nivel, opciones){
     let robotEn = function(celda){
         return robots.find(function(robot){ return igual(robot.pos, celda); }) || null;
     };
-    let html = '<div class="maze-grid">';
+    let tam = Math.max(14, Math.min(32, Math.floor((370 - (nivel.columnas - 1) * 2) / nivel.columnas)));
+    let estiloCelda = 'width:' + tam + 'px;height:' + tam + 'px;line-height:' + tam + 'px;font-size:' + Math.max(10, Math.round(tam * 0.55)) + 'px;';
+    let html = '<div class="maze-grid" style="grid-template-columns:repeat(' + nivel.columnas + ',' + tam + 'px);">';
     for (let r = 0; r < nivel.mapa.length; r++){
         for (let c = 0; c < nivel.mapa[r].length; c++){
             let celda = [r, c];
@@ -551,19 +572,24 @@ JuegoWeb.prototype.renderizarLaberinto = function(nivel, opciones){
             else if (igual(celda, nivel.salida)){ cls += " maze-exit"; }
             else {
                 inicios.forEach(function(indice){
-                    if (igual(celda, L.INICIOS[indice])){
+                    if (igual(celda, nivel.inicios[indice])){
                         cls += indice === 0 ? " maze-start" : " maze-start2";
                     }
                 });
                 if (tipo === "H"){ cls += " maze-hielo"; simbolo = "❄"; }
                 if (tipo === "T"){ cls += " maze-trampa"; simbolo = "✖"; }
+                if (tipo === "P"){ cls += " maze-teleport"; simbolo = "◎"; }
+                if (tipo === "^"){ cls += " maze-arrow"; simbolo = "↑"; }
+                if (tipo === "v"){ cls += " maze-arrow"; simbolo = "↓"; }
+                if (tipo === "<"){ cls += " maze-arrow"; simbolo = "←"; }
+                if (tipo === ">"){ cls += " maze-arrow"; simbolo = "→"; }
             }
             if (opciones.camino && !robot && opciones.camino.some(function(p){ return igual(p, celda); })){
                 cls += " maze-path";
             }
             if (igual(celda, opciones.actual)){ cls += " maze-current"; }
             if (robot){ cls += robot.indice === 0 ? " maze-p1" : " maze-p2"; simbolo = robot.indice === 0 ? "1" : "2"; }
-            html += '<div class="' + cls + '">' + simbolo + '</div>';
+            html += '<div class="' + cls + '" style="' + estiloCelda + '">' + simbolo + '</div>';
         }
     }
     return html + '</div>';

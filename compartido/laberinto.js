@@ -2,14 +2,18 @@
 // (resolución autoritativa de las partidas). Es un módulo UMD: en Node se
 // carga con require() y en el navegador queda como la variable global Laberinto.
 //
-// Casillas: "0" pasillo, "1" pared, "T" trampa (el robot vuelve a su salida),
-// "H" hielo (el robot resbala en la misma dirección hasta la siguiente pared o la salida).
+// Casillas del mapa:
+//   "0" pasillo          "1" pared
+//   "H" hielo            el robot resbala en la misma dirección hasta la siguiente casilla libre o la salida
+//   "T" trampa           el robot vuelve a su salida
+//   "P" teletransporte   el robot pasa a la casilla emparejada
+//   "^" "v" "<" ">"      flecha de un solo sentido: solo se puede entrar en esa dirección
 //
 // Un programa es un árbol JSON de bloques, por ejemplo:
 //   [ {tipo:"mv", dir:"right"},
 //     {tipo:"repeat", n:3, cuerpo:[ {tipo:"mv", dir:"down"} ]},
-//     {tipo:"while", cond:"not exit", cuerpo:[ {tipo:"mv", dir:"right"} ]},
-//     {tipo:"if", cond:"wall up", cuerpo:[...], otro:[...] } ]
+//     {tipo:"while", cond:"exit visible", negada:true, cuerpo:[ {tipo:"mv", dir:"right"} ]},
+//     {tipo:"if", cond:"wall up", cuerpo:[...], otro:[...]} ]
 (function(raiz, fabrica){
     if (typeof module === "object" && module.exports){
         module.exports = fabrica();
@@ -18,96 +22,12 @@
     }
 }(typeof self !== "undefined" ? self : this, function(){
 
-    // 1 = pared, 0 = pasillo. Todos los niveles son de 10x10 y comparten inicios.
-    const INICIOS = [[1, 1], [8, 8]];
-
-    const NIVELES = [
-        {
-            id: "clasico",
-            nombre: "Clásico",
-            salida: [8, 1],
-            mapa: [
-                "1111111111",
-                "1000100001",
-                "1010101101",
-                "1010000101",
-                "1011110101",
-                "1000010001",
-                "1111011101",
-                "1000000101",
-                "1011110001",
-                "1111111111"
-            ]
-        },
-        {
-            id: "cruce",
-            nombre: "Cruce",
-            salida: [2, 8],
-            mapa: [
-                "1111111111",
-                "1001000001",
-                "1000010101",
-                "1000001101",
-                "1001001001",
-                "1011001011",
-                "1000000111",
-                "1000000101",
-                "1000000001",
-                "1111111111"
-            ]
-        },
-        {
-            id: "zigzag",
-            nombre: "Zigzag",
-            salida: [1, 8],
-            mapa: [
-                "1111111111",
-                "1000001101",
-                "1010001001",
-                "1101000011",
-                "1001101011",
-                "1000000101",
-                "1000001001",
-                "1000001111",
-                "1010000001",
-                "1111111111"
-            ]
-        },
-        {
-            id: "hielo",
-            nombre: "Hielo",
-            salida: [2, 4],
-            mapa: [
-                "1111111111",
-                "1001010001",
-                "1010001001",
-                "1H00000101",
-                "1010001111",
-                "1HH1100101",
-                "1100001011",
-                "1101010HH1",
-                "1010000001",
-                "1111111111"
-            ]
-        },
-        {
-            id: "trampas",
-            nombre: "Trampas",
-            salida: [8, 2],
-            mapa: [
-                "1111111111",
-                "1010000101",
-                "1010000001",
-                "1000T00001",
-                "10TT100001",
-                "1010001001",
-                "1010T00001",
-                "1100101T01",
-                "1100100101",
-                "1111111111"
-            ]
-        }
-    ];
+    // Dificultad = tamaño del laberinto y cantidad de casillas especiales.
+    const DIFICULTADES = {
+        pequeno: { id: "pequeno", nombre: "Small", filas: 11, columnas: 11, especiales: 3, teleports: 0 },
+        mediano: { id: "mediano", nombre: "Medium", filas: 15, columnas: 15, especiales: 7, teleports: 1 },
+        grande:  { id: "grande",  nombre: "Large",  filas: 19, columnas: 19, especiales: 12, teleports: 2 }
+    };
 
     const DIRECCIONES = {
         up:    [-1, 0],
@@ -116,20 +36,46 @@
         right: [0, 1]
     };
 
-    const CONDICIONES = ["wall up", "wall down", "wall left", "wall right", "not exit"];
+    // Condiciones positivas; el bloque puede negarlas con "negada".
+    const CONDICIONES = ["wall up", "wall down", "wall left", "wall right", "exit visible", "ice", "trap", "teleport", "arrow"];
     const TIPOS = ["mv", "repeat", "while", "if"];
+    const FLECHAS = { "^": "up", "v": "down", "<": "left", ">": "right" };
 
     const LIMITES = {
-        comandos: 50,        // movimientos ejecutados por el robot
+        comandos: 50,        // movimientos por defecto (cada nivel puede subirlo)
         bloques: 60,         // nodos en el programa escrito
         profundidad: 4,      // anidamiento máximo
         repeticiones: 10,    // valor máximo de repeat
         pasosBucle: 2000     // nodos visitados en la ejecución (corta bucles infinitos)
     };
 
-    function obtenerNivel(id){
-        return NIVELES.find(function(n){ return n.id === id; }) || null;
+    // --- Azar reproducible ---
+
+    function crearAzar(semilla){
+        let estado = semilla >>> 0;
+        return function(){
+            estado = estado + 0x6D2B79F5 | 0;
+            let t = Math.imul(estado ^ estado >>> 15, 1 | estado);
+            t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+            return ((t ^ t >>> 14) >>> 0) / 4294967296;
+        };
     }
+
+    function entero(rnd, minimo, maximo){
+        return minimo + Math.floor(rnd() * (maximo - minimo + 1));
+    }
+
+    function mezclar(lista, rnd){
+        for (let i = lista.length - 1; i > 0; i--){
+            let j = Math.floor(rnd() * (i + 1));
+            let aux = lista[i];
+            lista[i] = lista[j];
+            lista[j] = aux;
+        }
+        return lista;
+    }
+
+    // --- Consultas del laberinto ---
 
     function esPared(nivel, r, c){
         if (r < 0 || r >= nivel.mapa.length || c < 0 || c >= nivel.mapa[0].length){
@@ -142,36 +88,98 @@
         return nivel.mapa[pos[0]][pos[1]];
     }
 
-    // Única regla de movimiento: la usan la simulación y la búsqueda de rutas.
-    // Devuelve la nueva posición (la misma si hay pared).
-    function moverDesde(nivel, pos, dir, inicio){
+    function esSalida(nivel, pos){
+        return pos[0] === nivel.salida[0] && pos[1] === nivel.salida[1];
+    }
+
+    function mismaPos(a, b){
+        return a[0] === b[0] && a[1] === b[1];
+    }
+
+    function parejaTeleport(nivel, pos){
+        let parejas = nivel.teleports || [];
+        for (let i = 0; i < parejas.length; i++){
+            if (parejaIgual(parejas[i][0], pos)){ return parejas[i][1]; }
+            if (parejaIgual(parejas[i][1], pos)){ return parejas[i][0]; }
+        }
+        return null;
+    }
+
+    function parejaIgual(a, b){
+        return a[0] === b[0] && a[1] === b[1];
+    }
+
+    // Avance de una casilla. Aplica paredes y flechas de un solo sentido.
+    function pasoSencillo(nivel, pos, dir){
         let d = DIRECCIONES[dir];
         let destino = [pos[0] + d[0], pos[1] + d[1]];
         if (esPared(nivel, destino[0], destino[1])){
             return pos.slice();
         }
-        while (tipoEn(nivel, destino) === "H" && !esSalida(nivel, destino)){
-            let siguiente = [destino[0] + d[0], destino[1] + d[1]];
-            if (esPared(nivel, siguiente[0], siguiente[1])){ break; }
+        let flecha = FLECHAS[tipoEn(nivel, destino)];
+        if (flecha && flecha !== dir){
+            return pos.slice();
+        }
+        return destino;
+    }
+
+    // Única regla de movimiento: la usan la simulación y la búsqueda de rutas del bot.
+    function moverDesde(nivel, pos, dir, inicio){
+        let destino = pasoSencillo(nivel, pos, dir);
+        if (mismaPos(destino, pos)){
+            return pos.slice();
+        }
+        // Hielo: seguir deslizando en la misma dirección.
+        let guardas = 0;
+        while (tipoEn(nivel, destino) === "H" && !esSalida(nivel, destino) && guardas++ < 200){
+            let siguiente = pasoSencillo(nivel, destino, dir);
+            if (mismaPos(siguiente, destino)){ break; }
             destino = siguiente;
         }
         if (tipoEn(nivel, destino) === "T"){
             return inicio.slice();
         }
-        return destino;
+        let pareja = tipoEn(nivel, destino) === "P" ? parejaTeleport(nivel, destino) : null;
+        return pareja ? pareja.slice() : destino;
     }
 
-    function esSalida(nivel, pos){
-        return pos[0] === nivel.salida[0] && pos[1] === nivel.salida[1];
-    }
-
-    function cumple(nivel, cond, pos){
-        if (cond === "not exit"){
-            return !esSalida(nivel, pos);
+    function veSalida(nivel, pos){
+        let salida = nivel.salida;
+        if (pos[0] === salida[0]){
+            let desde = Math.min(pos[1], salida[1]) + 1;
+            let hasta = Math.max(pos[1], salida[1]);
+            for (let c = desde; c < hasta; c++){
+                if (esPared(nivel, pos[0], c)){ return false; }
+            }
+            return true;
         }
+        if (pos[1] === salida[1]){
+            let desde = Math.min(pos[0], salida[0]) + 1;
+            let hasta = Math.max(pos[0], salida[0]);
+            for (let r = desde; r < hasta; r++){
+                if (esPared(nivel, r, pos[1])){ return false; }
+            }
+            return true;
+        }
+        return false;
+    }
+
+    function evaluarCondicion(nivel, cond, pos){
+        if (cond === "exit visible"){ return veSalida(nivel, pos); }
+        if (cond === "ice"){ return tipoEn(nivel, pos) === "H"; }
+        if (cond === "trap"){ return tipoEn(nivel, pos) === "T"; }
+        if (cond === "teleport"){ return tipoEn(nivel, pos) === "P"; }
+        if (cond === "arrow"){ return !!FLECHAS[tipoEn(nivel, pos)]; }
         let dir = DIRECCIONES[cond.slice("wall ".length)];
         return esPared(nivel, pos[0] + dir[0], pos[1] + dir[1]);
     }
+
+    function cumple(nivel, cond, pos, negada){
+        let resultado = evaluarCondicion(nivel, cond, pos);
+        return negada ? !resultado : resultado;
+    }
+
+    // --- Validación ---
 
     // Devuelve null si el programa es válido, o un mensaje de error.
     function validar(programa){
@@ -202,6 +210,9 @@
                     }
                     continue;
                 }
+                if (nodo.negada !== undefined && typeof nodo.negada !== "boolean"){
+                    return "El modificador de negación no es válido";
+                }
                 if (nodo.tipo === "repeat"){
                     if (!Number.isInteger(nodo.n) || nodo.n < 1 || nodo.n > LIMITES.repeticiones){
                         return "El número de repeticiones debe estar entre 1 y " + LIMITES.repeticiones;
@@ -222,6 +233,12 @@
         return revisarLista(programa, 1);
     }
 
+    // --- Ejecución ---
+
+    function maximoPasos(nivel){
+        return nivel.maxPasos || LIMITES.comandos;
+    }
+
     // Ejecuta el programa para un robot que parte de "inicio".
     // Devuelve la posición tras cada movimiento (camino), si llegó a la salida y
     // la posición final. El robot se detiene al llegar a la salida.
@@ -231,6 +248,7 @@
         let visitas = 0;
         let llega = false;
         let parado = false;
+        let maximo = maximoPasos(nivel);
 
         function ejecutar(lista){
             for (let nodo of lista){
@@ -244,7 +262,7 @@
                         parado = true;
                         return;
                     }
-                    if (camino.length >= LIMITES.comandos){
+                    if (camino.length >= maximo){
                         parado = true;
                         return;
                     }
@@ -253,12 +271,12 @@
                         ejecutar(nodo.cuerpo);
                     }
                 } else if (nodo.tipo === "while"){
-                    while (!parado && cumple(nivel, nodo.cond, pos)){
+                    while (!parado && cumple(nivel, nodo.cond, pos, nodo.negada)){
                         if (++visitas > LIMITES.pasosBucle){ parado = true; return; }
                         ejecutar(nodo.cuerpo);
                     }
                 } else if (nodo.tipo === "if"){
-                    if (cumple(nivel, nodo.cond, pos)){
+                    if (cumple(nivel, nodo.cond, pos, nodo.negada)){
                         ejecutar(nodo.cuerpo);
                     } else if (nodo.otro){
                         ejecutar(nodo.otro);
@@ -271,7 +289,9 @@
         return { camino: camino, llega: llega, final: pos, inicio: inicio.slice() };
     }
 
-    // Distancia mínima por caminos hasta la salida (BFS). Infinity si no hay ruta.
+    // --- Rutas ---
+
+    // Distancia mínima por caminos hasta la salida. Infinity si no hay ruta.
     function distanciaSalida(nivel, origen, inicio){
         let ruta = rutaHasta(nivel, origen, inicio);
         return ruta === null ? Infinity : ruta.length;
@@ -300,7 +320,7 @@
             }
             for (let dir of Object.keys(DIRECCIONES)){
                 let siguiente = moverDesde(nivel, actual, dir, inicio);
-                if (clave(siguiente) === clave(actual) || padre.hasOwnProperty(clave(siguiente))){ continue; }
+                if (mismaPos(siguiente, actual) || padre.hasOwnProperty(clave(siguiente))){ continue; }
                 padre[clave(siguiente)] = { pos: actual, dir: dir };
                 cola.push(siguiente);
             }
@@ -357,26 +377,230 @@
     // Programa automático: sigue la ruta más corta. Lo usa el bot de las partidas
     // en solitario.
     function programaBot(nivel, inicio){
-        let ruta = rutaHasta(nivel, inicio) || [];
-        return ruta.slice(0, LIMITES.comandos).map(function(dir){
+        let ruta = rutaHasta(nivel, inicio, inicio) || [];
+        return ruta.slice(0, maximoPasos(nivel)).map(function(dir){
             return { tipo: "mv", dir: dir };
         });
     }
 
+    // --- Generación procedural ---
+
+    function laberintoBase(filas, columnas, rnd){
+        let mapa = [];
+        for (let r = 0; r < filas; r++){
+            mapa.push(new Array(columnas).fill("1"));
+        }
+        let pila = [[1, 1]];
+        let visitadas = { "1,1": true };
+        mapa[1][1] = "0";
+        while (pila.length > 0){
+            let actual = pila[pila.length - 1];
+            let r = actual[0];
+            let c = actual[1];
+            let vecinos = [[r - 2, c], [r + 2, c], [r, c - 2], [r, c + 2]].filter(function(v){
+                return v[0] > 0 && v[0] < filas - 1 && v[1] > 0 && v[1] < columnas - 1 && !visitadas[v[0] + "," + v[1]];
+            });
+            if (vecinos.length === 0){
+                pila.pop();
+                continue;
+            }
+            let siguiente = vecinos[entero(rnd, 0, vecinos.length - 1)];
+            mapa[(r + siguiente[0]) / 2][(c + siguiente[1]) / 2] = "0";
+            mapa[siguiente[0]][siguiente[1]] = "0";
+            visitadas[siguiente[0] + "," + siguiente[1]] = true;
+            pila.push(siguiente);
+        }
+        // Abrir algunos muros para crear rutas alternativas (laberinto con bucles).
+        for (let r = 1; r < filas - 1; r++){
+            for (let c = 1; c < columnas - 1; c++){
+                if (mapa[r][c] !== "1" || rnd() > 0.10){ continue; }
+                let horizontal = mapa[r][c - 1] === "0" && mapa[r][c + 1] === "0";
+                let vertical = mapa[r - 1][c] === "0" && mapa[r + 1][c] === "0";
+                if (horizontal !== vertical){ mapa[r][c] = "0"; }
+            }
+        }
+        return mapa;
+    }
+
+    // Distancias por pasillos (sin casillas especiales) desde un origen.
+    function distanciasBase(mapa, origen){
+        let filas = mapa.length;
+        let columnas = mapa[0].length;
+        let distancias = mapa.map(function(fila){ return fila.map(function(){ return Infinity; }); });
+        let cola = [origen.slice()];
+        distancias[origen[0]][origen[1]] = 0;
+        let indice = 0;
+        while (indice < cola.length){
+            let actual = cola[indice++];
+            for (let dir of Object.keys(DIRECCIONES)){
+                let nr = actual[0] + DIRECCIONES[dir][0];
+                let nc = actual[1] + DIRECCIONES[dir][1];
+                if (nr < 0 || nr >= filas || nc < 0 || nc >= columnas || mapa[nr][nc] !== "0"){ continue; }
+                if (distancias[nr][nc] !== Infinity){ continue; }
+                distancias[nr][nc] = distancias[actual[0]][actual[1]] + 1;
+                cola.push([nr, nc]);
+            }
+        }
+        return distancias;
+    }
+
+    function solucionable(nivel){
+        return nivel.inicios.every(function(inicio){
+            let distancia = distanciaSalida(nivel, inicio, inicio);
+            return distancia !== Infinity && distancia <= maximoPasos(nivel) - 2;
+        });
+    }
+
+    function mapaEnTexto(nivel){
+        return nivel.mapa.map(function(fila){
+            return Array.isArray(fila) ? fila.join("") : fila;
+        });
+    }
+
+    // Coloca casillas especiales comprobando que el nivel sigue siendo resoluble.
+    function colocarEspeciales(nivel, dificultad, rnd){
+        let filas = nivel.filas;
+        let columnas = nivel.columnas;
+        let ocupadas = {};
+
+        function disponibles(){
+            let lista = [];
+            for (let r = 1; r < filas - 1; r++){
+                for (let c = 1; c < columnas - 1; c++){
+                    if (nivel.mapa[r][c] !== "0"){ continue; }
+                    if (parejaIgual([r, c], nivel.salida)){ continue; }
+                    if (nivel.inicios.some(function(i){ return parejaIgual(i, [r, c]); })){ continue; }
+                    if (ocupadas[r + "," + c]){ continue; }
+                    lista.push([r, c]);
+                }
+            }
+            return mezclar(lista, rnd);
+        }
+
+        function intentar(valor, celdas){
+            let previos = celdas.map(function(celda){ return nivel.mapa[celda[0]][celda[1]]; });
+            celdas.forEach(function(celda, i){ nivel.mapa[celda[0]][celda[1]] = valor[i]; });
+            if (solucionable(nivel)){
+                celdas.forEach(function(celda){ ocupadas[celda[0] + "," + celda[1]] = true; });
+                return true;
+            }
+            celdas.forEach(function(celda, i){ nivel.mapa[celda[0]][celda[1]] = previos[i]; });
+            return false;
+        }
+
+        function colocarSimples(valor, cantidad){
+            let puestas = 0;
+            for (let intento = 0; intento < 60 && puestas < cantidad; intento++){
+                let candidatas = disponibles();
+                if (candidatas.length === 0){ return puestas; }
+                if (intentar([valor], [candidatas[0]])){ puestas++; }
+            }
+            return puestas;
+        }
+
+        let total = dificultad.especiales;
+        let hielo = Math.round(total * 0.40);
+        let trampas = Math.round(total * 0.20);
+        colocarSimples("H", hielo);
+        colocarSimples("T", trampas);
+
+        // Reparte las flechas entre las cuatro direcciones. En los mapas medianos
+        // y grandes hay al menos una de cada tipo; en el pequeño caben menos.
+        let flechas = total >= 6 ? 4 : Math.max(1, Math.round(total * 0.25));
+        let porDireccion = Math.floor(flechas / 4);
+        let resto = flechas % 4;
+        // El orden se baraja para que, cuando sobra alguna, no recaiga siempre en
+        // las mismas direcciones (en Small solo cabe una flecha).
+        mezclar(["^", "v", "<", ">"], rnd).forEach(function(valor, i){
+            colocarSimples(valor, porDireccion + (i < resto ? 1 : 0));
+        });
+
+        for (let i = 0; i < dificultad.teleports; i++){
+            let colocada = false;
+            for (let intento = 0; intento < 40 && !colocada; intento++){
+                let candidatas = disponibles();
+                if (candidatas.length < 2){ break; }
+                let a = candidatas[0];
+                let b = candidatas[1];
+                if (intentar(["P", "P"], [a, b])){
+                    nivel.teleports.push([a, b]);
+                    colocada = true;
+                }
+            }
+        }
+        return nivel;
+    }
+
+    function construirNivel(dificultad, rnd, semilla, sinEspeciales){
+        let filas = dificultad.filas;
+        let columnas = dificultad.columnas;
+        let inicios = [[1, 1], [filas - 2, columnas - 2]];
+        let mapa = laberintoBase(filas, columnas, rnd);
+        let d0 = distanciasBase(mapa, inicios[0]);
+        let d1 = distanciasBase(mapa, inicios[1]);
+        let minimo = Math.max(4, Math.floor((filas + columnas) / 6));
+        let candidatas = [];
+        for (let r = 1; r < filas - 1; r++){
+            for (let c = 1; c < columnas - 1; c++){
+                if (mapa[r][c] !== "0" || minimo > d0[r][c] || minimo > d1[r][c]){ continue; }
+                if (parejaIgual([r, c], inicios[0]) || parejaIgual([r, c], inicios[1])){ continue; }
+                candidatas.push([r, c]);
+            }
+        }
+        if (candidatas.length === 0){ return null; }
+
+        let nivel = {
+            id: "N" + semilla,
+            nombre: "Random " + filas + "×" + columnas,
+            semilla: semilla,
+            dificultad: dificultad.id,
+            filas: filas,
+            columnas: columnas,
+            maxPasos: Math.min(150, Math.max(60, Math.floor(filas * columnas * 0.5))),
+            mapa: mapa,
+            salida: candidatas[entero(rnd, 0, candidatas.length - 1)].slice(),
+            inicios: inicios,
+            teleports: []
+        };
+        if (!sinEspeciales){
+            colocarEspeciales(nivel, dificultad, rnd);
+            if (!solucionable(nivel)){ return null; }
+        }
+
+        nivel.mapa = mapaEnTexto(nivel);
+        return nivel;
+    }
+
+    // Genera un nivel nuevo. La semilla hace que el resultado sea reproducible.
+    function generarNivel(opciones){
+        opciones = opciones || {};
+        let dificultad = DIFICULTADES[opciones.dificultad] || DIFICULTADES.mediano;
+        let semilla = (Number.isInteger(opciones.semilla) ? opciones.semilla : entero(crearAzar(Date.now()), 1, 2147483646)) >>> 0;
+        let rnd = crearAzar(semilla);
+        for (let intento = 0; intento < 12; intento++){
+            let nivel = construirNivel(dificultad, rnd, semilla);
+            if (nivel){ return nivel; }
+        }
+        // Respaldo: un laberinto sin casillas especiales siempre es resoluble.
+        return construirNivel(dificultad, crearAzar(semilla), semilla, true);
+    }
+
     return {
-        INICIOS: INICIOS,
-        NIVELES: NIVELES,
+        DIFICULTADES: DIFICULTADES,
         DIRECCIONES: DIRECCIONES,
         CONDICIONES: CONDICIONES,
         LIMITES: LIMITES,
-        obtenerNivel: obtenerNivel,
         esPared: esPared,
+        esSalida: esSalida,
         validar: validar,
         trazar: trazar,
         distanciaSalida: distanciaSalida,
         rutaHasta: rutaHasta,
         resolver: resolver,
         lineaTemporal: lineaTemporal,
-        programaBot: programaBot
+        programaBot: programaBot,
+        generarNivel: generarNivel,
+        solucionable: solucionable,
+        maximoPasos: maximoPasos
     };
 }));

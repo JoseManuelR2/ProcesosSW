@@ -93,7 +93,10 @@ function montarSockets(io, opciones){
         });
 
         accion(socket, "crearPartida", 5, MINUTO, async function(usuario, datos){
-            let partida = gestor.crear(usuario.email, datos.nivel);
+            let partida = gestor.crear(usuario.email, {
+                dificultad: datos.dificultad,
+                semilla: Number.isInteger(datos.semilla) ? datos.semilla : undefined
+            });
             if (partida.error){
                 return socket.emit("error", partida.error);
             }

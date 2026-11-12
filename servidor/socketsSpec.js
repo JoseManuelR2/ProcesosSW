@@ -155,7 +155,7 @@ describe("Maze Duel por sockets (integración)", function(){
             let r = await resultado;
             expect(r.ganador).toBe(ANA);
             expect(r.razon).toBe("llegó a la salida");
-            expect(r.pasos.length).toBeGreaterThan(0);
+            expect(r.pasos[0].posiciones).toEqual([[1, 1], [8, 8]]);
         });
 
         it("unirse otra vez a una partida en la que ya estás devuelve la partida (botón Jugar)", async function(){

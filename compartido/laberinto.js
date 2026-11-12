@@ -2,6 +2,9 @@
 // (resolución autoritativa de las partidas). Es un módulo UMD: en Node se
 // carga con require() y en el navegador queda como la variable global Laberinto.
 //
+// Casillas: "0" pasillo, "1" pared, "T" trampa (el robot vuelve a su salida),
+// "H" hielo (el robot resbala en la misma dirección hasta la siguiente pared o la salida).
+//
 // Un programa es un árbol JSON de bloques, por ejemplo:
 //   [ {tipo:"mv", dir:"right"},
 //     {tipo:"repeat", n:3, cuerpo:[ {tipo:"mv", dir:"down"} ]},
@@ -69,6 +72,40 @@
                 "1010000001",
                 "1111111111"
             ]
+        },
+        {
+            id: "hielo",
+            nombre: "Hielo",
+            salida: [2, 4],
+            mapa: [
+                "1111111111",
+                "1001010001",
+                "1010001001",
+                "1H00000101",
+                "1010001111",
+                "1HH1100101",
+                "1100001011",
+                "1101010HH1",
+                "1010000001",
+                "1111111111"
+            ]
+        },
+        {
+            id: "trampas",
+            nombre: "Trampas",
+            salida: [8, 2],
+            mapa: [
+                "1111111111",
+                "1010000101",
+                "1010000001",
+                "1000T00001",
+                "10TT100001",
+                "1010001001",
+                "1010T00001",
+                "1100101T01",
+                "1100100101",
+                "1111111111"
+            ]
         }
     ];
 
@@ -99,6 +136,29 @@
             return true;
         }
         return nivel.mapa[r][c] === "1";
+    }
+
+    function tipoEn(nivel, pos){
+        return nivel.mapa[pos[0]][pos[1]];
+    }
+
+    // Única regla de movimiento: la usan la simulación y la búsqueda de rutas.
+    // Devuelve la nueva posición (la misma si hay pared).
+    function moverDesde(nivel, pos, dir, inicio){
+        let d = DIRECCIONES[dir];
+        let destino = [pos[0] + d[0], pos[1] + d[1]];
+        if (esPared(nivel, destino[0], destino[1])){
+            return pos.slice();
+        }
+        while (tipoEn(nivel, destino) === "H" && !esSalida(nivel, destino)){
+            let siguiente = [destino[0] + d[0], destino[1] + d[1]];
+            if (esPared(nivel, siguiente[0], siguiente[1])){ break; }
+            destino = siguiente;
+        }
+        if (tipoEn(nivel, destino) === "T"){
+            return inicio.slice();
+        }
+        return destino;
     }
 
     function esSalida(nivel, pos){
@@ -177,12 +237,7 @@
                 if (parado){ return; }
                 if (++visitas > LIMITES.pasosBucle){ parado = true; return; }
                 if (nodo.tipo === "mv"){
-                    let dir = DIRECCIONES[nodo.dir];
-                    let nr = pos[0] + dir[0];
-                    let nc = pos[1] + dir[1];
-                    if (!esPared(nivel, nr, nc)){
-                        pos = [nr, nc];
-                    }
+                    pos = moverDesde(nivel, pos, nodo.dir, inicio);
                     camino.push([pos[0], pos[1]]);
                     if (esSalida(nivel, pos)){
                         llega = true;
@@ -213,43 +268,41 @@
         }
 
         ejecutar(programa);
-        return { camino: camino, llega: llega, final: pos };
+        return { camino: camino, llega: llega, final: pos, inicio: inicio.slice() };
     }
 
     // Distancia mínima por caminos hasta la salida (BFS). Infinity si no hay ruta.
-    function distanciaSalida(nivel, origen){
-        let ruta = rutaHasta(nivel, origen);
+    function distanciaSalida(nivel, origen, inicio){
+        let ruta = rutaHasta(nivel, origen, inicio);
         return ruta === null ? Infinity : ruta.length;
     }
 
-    // Lista de direcciones de la ruta más corta desde origen hasta la salida.
-    function rutaHasta(nivel, origen){
-        let filas = nivel.mapa.length;
-        let cols = nivel.mapa[0].length;
+    // Direcciones de la ruta más corta desde origen hasta la salida.
+    // "inicio" es la salida del robot (a donde vuelve al pisar una trampa).
+    function rutaHasta(nivel, origen, inicio){
+        inicio = inicio || origen;
         let padre = {};
-        let clave = function(r, c){ return r + "," + c; };
+        let clave = function(pos){ return pos[0] + "," + pos[1]; };
         let cola = [[origen[0], origen[1]]];
-        padre[clave(origen[0], origen[1])] = null;
+        padre[clave(origen)] = null;
         let indice = 0;
         while (indice < cola.length){
-            let [r, c] = cola[indice++];
-            if (esSalida(nivel, [r, c])){
+            let actual = cola[indice++];
+            if (esSalida(nivel, actual)){
                 let dirs = [];
-                let actual = [r, c];
-                while (padre[clave(actual[0], actual[1])]){
-                    let previo = padre[clave(actual[0], actual[1])];
+                let nodo = actual;
+                while (padre[clave(nodo)]){
+                    let previo = padre[clave(nodo)];
                     dirs.unshift(previo.dir);
-                    actual = previo.pos;
+                    nodo = previo.pos;
                 }
                 return dirs;
             }
             for (let dir of Object.keys(DIRECCIONES)){
-                let nr = r + DIRECCIONES[dir][0];
-                let nc = c + DIRECCIONES[dir][1];
-                if (nr < 0 || nr >= filas || nc < 0 || nc >= cols || esPared(nivel, nr, nc)){ continue; }
-                if (padre.hasOwnProperty(clave(nr, nc))){ continue; }
-                padre[clave(nr, nc)] = { pos: [r, c], dir: dir };
-                cola.push([nr, nc]);
+                let siguiente = moverDesde(nivel, actual, dir, inicio);
+                if (clave(siguiente) === clave(actual) || padre.hasOwnProperty(clave(siguiente))){ continue; }
+                padre[clave(siguiente)] = { pos: actual, dir: dir };
+                cola.push(siguiente);
             }
         }
         return null;
@@ -276,8 +329,8 @@
             }
             if (ganador !== null){ razon = "llegó a la salida"; }
         } else {
-            let d0 = distanciaSalida(nivel, trazas[0].final);
-            let d1 = distanciaSalida(nivel, trazas[1].final);
+            let d0 = distanciaSalida(nivel, trazas[0].final, trazas[0].inicio);
+            let d1 = distanciaSalida(nivel, trazas[1].final, trazas[1].inicio);
             if (d0 < d1){ ganador = 0; razon = "más cerca de la salida"; }
             else if (d1 < d0){ ganador = 1; razon = "más cerca de la salida"; }
             else { razon = "empate: igual de cerca de la salida"; }
@@ -286,16 +339,17 @@
     }
 
     // Fotogramas de la carrera: posiciones de ambos robots en cada instante.
+    // El paso 0 es la situación inicial (cada robot en su casilla de salida).
     function lineaTemporal(nivel, inicios, trazas){
         let total = Math.max(trazas[0].camino.length, trazas[1].camino.length);
         let pasos = [];
-        for (let t = 0; t < total; t++){
+        for (let t = 0; t <= total; t++){
             let posiciones = trazas.map(function(traza, j){
                 let camino = traza.camino;
-                if (camino.length === 0){ return inicios[j].slice(); }
-                return camino[Math.min(t, camino.length - 1)].slice();
+                if (t === 0 || camino.length === 0){ return inicios[j].slice(); }
+                return camino[Math.min(t, camino.length) - 1].slice();
             });
-            pasos.push({ paso: t + 1, posiciones: posiciones });
+            pasos.push({ paso: t, posiciones: posiciones });
         }
         return pasos;
     }

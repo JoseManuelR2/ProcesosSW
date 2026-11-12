@@ -230,6 +230,9 @@ esperan rival, a los 10.
   el mismo número de movimientos, empate.
 - Si nadie llega, gana quien está más cerca **por caminos** (no en línea recta).
 - Máximo 50 movimientos por programa, 60 bloques y 4 niveles de anidamiento.
+- Casillas: `❄` hielo (el robot resbala en la misma dirección hasta la siguiente
+  casilla libre o la salida) y `✖` trampa (el robot vuelve a su salida).
+- Niveles: Clásico, Cruce, Zigzag, Hielo y Trampas.
 
 ### Programa (árbol JSON)
 

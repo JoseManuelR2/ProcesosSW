@@ -18,6 +18,7 @@ const EXIT = [8, 1];
 const START = [1, 1];
 
 const BLOCK_PALETTE = [
+    { type: "start", label: "▶ start", color: "#28a745", hasChildren: true, param: null },
     { type: "mv", label: "move", color: "#4C97FF", hasChildren: false, param: "right" },
     { type: "repeat", label: "repeat", color: "#FFAB19", hasChildren: true, param: 3 },
     { type: "for", label: "for", color: "#FFAB19", hasChildren: true, param: 3 },
@@ -29,6 +30,10 @@ const BLOCK_PALETTE = [
 const DIRS = ["up", "down", "left", "right"];
 const CONDS = ["wall ahead", "exit visible", "not exit"];
 
+// Global drag state
+let draggedType = null;
+let draggedId = null;
+
 function JuegoWeb(cw, socket){
     this.cw = cw;
     this.socket = socket;
@@ -36,7 +41,7 @@ function JuegoWeb(cw, socket){
     this.esAdmin = false;
     this.usuario = null;
     this.blockIdCounter = 0;
-    this.workspace = [];
+    this.workspace = [{ id: "start0", type: "start", param: null, children: [], elseChildren: [] }];
     this.animTimer = null;
 }
 
@@ -58,10 +63,12 @@ JuegoWeb.prototype.crearBloque = function(type){
 
 JuegoWeb.prototype.renderBloque = function(blk, depth){
     depth = depth || 0;
-    let pal = BLOCK_PALETTE.find(function(b){ return b.type === type; });
-    let html = '<div class="block" draggable="true" data-id="' + blk.id + '" style="background:' + pal.color + ';margin-left:' + (depth*20) + 'px;">';
+    let pal = BLOCK_PALETTE.find(function(b){ return b.type === blk.type; });
+    let html = '<div class="block" data-id="' + blk.id + '" style="background:' + pal.color + ';margin-left:' + (depth*20) + 'px;">';
     html += '<span class="block-label">' + pal.label + '</span> ';
-    if (blk.type === "mv"){
+    if (blk.type === "start"){
+        // start block is special, no params
+    } else if (blk.type === "mv"){
         html += '<select class="block-param" data-id="' + blk.id + '">';
         DIRS.forEach(function(d){
             html += '<option value="' + d + '"' + (blk.param === d ? ' selected' : '') + '>' + d + '</option>';
@@ -76,15 +83,28 @@ JuegoWeb.prototype.renderBloque = function(blk, depth){
         });
         html += '</select>';
     }
-    html += ' <button class="block-del" data-id="' + blk.id + '">&times;</button>';
+    if (blk.type !== "start"){
+        html += ' <button class="block-del" data-id="' + blk.id + '">&times;</button>';
+    }
     html += '</div>';
-    if (blk.hasChildren || pal.hasChildren){
+    if (blk.type !== "start" && (blk.hasChildren || pal.hasChildren)){
         html += '<div class="block-children" data-parent="' + blk.id + '" style="margin-left:' + ((depth+1)*20) + 'px;min-height:20px;border-left:2px dashed #ccc;padding-left:8px;">';
         blk.children.forEach(function(child){
             html += this.renderBloque(child, depth + 1);
         }, this);
         if (blk.children.length === 0){
             html += '<div class="block-placeholder">drop here</div>';
+        }
+        html += '</div>';
+    }
+    if (blk.type === "start"){
+        // Start block contains all top-level blocks
+        html += '<div class="block-children" data-parent="' + blk.id + '" style="margin-left:' + ((depth+1)*20) + 'px;min-height:20px;border-left:2px dashed #28a745;padding-left:8px;">';
+        blk.children.forEach(function(child){
+            html += this.renderBloque(child, depth + 1);
+        }, this);
+        if (blk.children.length === 0){
+            html += '<div class="block-placeholder">drop blocks here</div>';
         }
         html += '</div>';
     }
@@ -166,21 +186,20 @@ JuegoWeb.prototype.mostrarLobby = function(){
 
 JuegoWeb.prototype.mostrarEditor = function(partida){
     this.partidaActual = partida;
-    this.workspace = [];
     let self = this;
     let cadena = '<div class="card p-4 mt-3"><h4>Game ' + partida.id + '</h4>';
     cadena += '<p>Players: ' + partida.jugadores.join(" vs ") + '</p>';
     cadena += '<div class="row"><div class="col-md-3">';
-    // Palette
-    cadena += '<h6>Block palette (click to add)</h6>';
-    cadena += '<div id="paleta">';
+    // Palette (vertical)
+    cadena += '<h6>Block palette (drag or click)</h6>';
+    cadena += '<div id="paleta" style="display:flex;flex-direction:column;gap:4px;">';
     BLOCK_PALETTE.forEach(function(b){
         cadena += '<div class="block-palette" data-type="' + b.type + '" style="background:' + b.color + ';" draggable="true">' + b.label + '</div>';
     });
     cadena += '</div>';
     cadena += '</div><div class="col-md-5">';
     // Workspace
-    cadena += '<h6>Your program (click palette to add, X to remove)</h6>';
+    cadena += '<h6>Your program</h6>';
     cadena += '<div id="workspace" style="min-height:200px;border:2px dashed #ccc;padding:10px;background:#f8f9fa;border-radius:6px;"></div>';
     cadena += '<div class="mt-2">';
     cadena += '<button id="btnProbar" class="btn btn-info btn-sm">Test</button>';
@@ -202,12 +221,15 @@ JuegoWeb.prototype.mostrarEditor = function(partida){
     $(".block-palette").on("click", function(){
         let type = $(this).data("type");
         let blk = self.crearBloque(type);
-        self.workspace.push(blk);
+        // Add to start block's children
+        self.workspace[0].children.push(blk);
         self.renderWorkspace();
     });
 
     // Drag and drop from palette to workspace
     $(".block-palette").attr("draggable", "true").on("dragstart", function(e){
+        draggedType = $(this).data("type");
+        draggedId = null;
         e.originalEvent.dataTransfer.setData("text/plain", $(this).data("type"));
         e.originalEvent.dataTransfer.effectAllowed = "copy";
     });
@@ -221,16 +243,17 @@ JuegoWeb.prototype.mostrarEditor = function(partida){
     }).on("drop", function(e){
         e.preventDefault();
         $(this).css("background", "#f8f9fa");
-        let type = e.originalEvent.dataTransfer.getData("text/plain");
+        let type = draggedType || e.originalEvent.dataTransfer.getData("text/plain");
         if (type && BLOCK_PALETTE.find(function(b){ return b.type === type; })){
             let blk = self.crearBloque(type);
-            self.workspace.push(blk);
+            self.workspace[0].children.push(blk);
             self.renderWorkspace();
         }
+        draggedType = null;
     });
 
     $("#btnLimpiar").on("click", function(){
-        self.workspace = [];
+        self.workspace = [{ id: "start0", type: "start", param: null, children: [], elseChildren: [] }];
         self.renderWorkspace();
         $("#previewLaberinto").html("");
     });
@@ -240,7 +263,7 @@ JuegoWeb.prototype.mostrarEditor = function(partida){
     });
 
     $("#btnEnviar").on("click", function(){
-        let codigo = self.bloquesACodigo(self.workspace);
+        let codigo = self.bloquesACodigo(self.workspace[0].children);
         if (!self.usuario){
             self.cw.mostrarMensaje("You must log in to send a program", "warning");
             return;
@@ -257,14 +280,10 @@ JuegoWeb.prototype.mostrarEditor = function(partida){
 JuegoWeb.prototype.renderWorkspace = function(){
     let self = this;
     let html = "";
-    if (this.workspace.length === 0){
-        html = '<div class="text-muted small">Click a block from the palette to add it here.</div>';
-    } else {
-        this.workspace.forEach(function(blk){
-            html += self.renderBloque(blk, 0);
-        });
-    }
-    $("#workspace").html(html);
+    this.workspace.forEach(function(blk){
+        html += self.renderBloque(blk, 0);
+    });
+    $("#workspace").html(html || '<div class="text-muted small">Click a block from the palette to add it here.</div>');
 
     $(".block-param").on("change", function(){
         let id = $(this).data("id");
@@ -284,9 +303,10 @@ JuegoWeb.prototype.renderWorkspace = function(){
         self.renderWorkspace();
     });
 
-    // Drag and drop for reordering
     $(".block").attr("draggable", "true").on("dragstart", function(e){
-        e.originalEvent.dataTransfer.setData("text/plain", $(this).data("id"));
+        draggedId = $(this).data("id");
+        draggedType = null;
+        e.originalEvent.dataTransfer.setData("text/plain", draggedId);
         e.originalEvent.dataTransfer.effectAllowed = "move";
         $(this).css("opacity", "0.4");
     }).on("dragend", function(){
@@ -310,6 +330,8 @@ JuegoWeb.prototype.buscarBloque = function(lista, id){
 JuegoWeb.prototype.eliminarBloque = function(lista, id){
     for (let i = 0; i < lista.length; i++){
         if (lista[i].id === id){
+            // Don't delete start block
+            if (lista[i].type === "start"){ return false; }
             lista.splice(i, 1);
             return true;
         }
@@ -323,7 +345,9 @@ JuegoWeb.prototype.bloquesACodigo = function(lista, indent){
     indent = indent || "";
     let lineas = [];
     lista.forEach(function(blk){
-        if (blk.type === "mv"){
+        if (blk.type === "start"){
+            lineas = lineas.concat(this.bloquesACodigo(blk.children, indent));
+        } else if (blk.type === "mv"){
             lineas.push(indent + "mv " + blk.param);
         } else if (blk.type === "repeat" || blk.type === "for"){
             lineas.push(indent + (blk.type === "for" ? "for" : "repeat") + " " + blk.param);
@@ -415,25 +439,19 @@ JuegoWeb.prototype.probarBloques = function(){
     let path = [pos.slice()];
     let step = 0;
 
-    // Clear any previous animation
     if (this.animTimer){ clearInterval(this.animTimer); }
-
-    // Render initial state
-    this.renderizarLaberintoAnimado(pos, path, null);
 
     if (comandos.length === 0){
         $("#previewLaberinto").html('<p class="text-warning small">No hay movimientos para probar.</p>');
         return;
     }
 
-    let self2 = this;
     this.animTimer = setInterval(function(){
         if (step >= comandos.length){
-            clearInterval(self2.animTimer);
-            self2.animTimer = null;
-            // Final render
+            clearInterval(self.animTimer);
+            self.animTimer = null;
             let finalPos = path[path.length - 1];
-            let html = self2.renderizarLaberinto(pos, null, path, null);
+            let html = self.renderizarLaberinto(pos, null, path, null);
             html += '<p class="small mt-1">Pasos: ' + comandos.length + ' | Posición final: (' + finalPos[0] + ', ' + finalPos[1] + ')</p>';
             if (finalPos[0] === EXIT[0] && finalPos[1] === EXIT[1]){
                 html += '<p class="text-success small">¡Llega a la salida!</p>';
@@ -457,16 +475,10 @@ JuegoWeb.prototype.probarBloques = function(){
         path.push(pos.slice());
         step++;
 
-        // Render with current position highlighted
-        let html = self2.renderizarLaberinto(pos, null, path, pos);
+        let html = self.renderizarLaberinto(pos, null, path, pos);
         html += '<p class="small mt-1">Paso ' + step + '/' + comandos.length + ' | Posición: (' + pos[0] + ', ' + pos[1] + ')</p>';
         $("#previewLaberinto").html(html);
     }, 400);
-};
-
-JuegoWeb.prototype.renderizarLaberintoAnimado = function(pos, path, current){
-    // Alias for renderizarLaberinto
-    return this.renderizarLaberinto(pos, null, path, current);
 };
 
 JuegoWeb.prototype.mostrarResultado = function(resultado){
@@ -545,7 +557,7 @@ JuegoWeb.prototype.iniciarTimer = function(segundos){
             clearInterval(self._timerHandle);
             self._timerHandle = null;
             $("#timerDisplay").hide();
-            let codigo = ""; // empty code
+            let codigo = self.bloquesACodigo(self.workspace[0].children);
             if (self.usuario && self.partidaActual){
                 if (!self.socket.connected){ self.socket.connect(); }
                 self.socket.emit("identificar", self.usuario.email);

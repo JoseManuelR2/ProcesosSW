@@ -283,6 +283,15 @@ JuegoWeb.prototype.renderWorkspace = function(){
         self.eliminarBloque(self.workspace, id);
         self.renderWorkspace();
     });
+
+    // Drag and drop for reordering
+    $(".block").attr("draggable", "true").on("dragstart", function(e){
+        e.originalEvent.dataTransfer.setData("text/plain", $(this).data("id"));
+        e.originalEvent.dataTransfer.effectAllowed = "move";
+        $(this).css("opacity", "0.4");
+    }).on("dragend", function(){
+        $(this).css("opacity", "1");
+    });
 };
 
 JuegoWeb.prototype.buscarBloque = function(lista, id){

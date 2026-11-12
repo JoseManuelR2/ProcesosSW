@@ -36,8 +36,9 @@
         right: [0, 1]
     };
 
-    // Condiciones positivas; el bloque puede negarlas con "negada".
-    const CONDICIONES = ["wall up", "wall down", "wall left", "wall right", "exit visible", "ice", "trap", "teleport", "arrow"];
+    // Condiciones positivas; el bloque puede negarlas con "negada" y muchas usan
+    // una dirección ("dir") para mirar la casilla de al lado o una dirección de la salida.
+    const CONDICIONES = ["wall", "exit visible", "ice", "trap", "teleport", "arrow"];
     const TIPOS = ["mv", "repeat", "while", "if"];
     const FLECHAS = { "^": "up", "v": "down", "<": "left", ">": "right" };
 
@@ -143,39 +144,62 @@
         return pareja ? pareja.slice() : destino;
     }
 
-    function veSalida(nivel, pos){
-        let salida = nivel.salida;
-        if (pos[0] === salida[0]){
-            let desde = Math.min(pos[1], salida[1]) + 1;
-            let hasta = Math.max(pos[1], salida[1]);
-            for (let c = desde; c < hasta; c++){
-                if (esPared(nivel, pos[0], c)){ return false; }
-            }
-            return true;
+    function posicionEn(pos, dir){
+        let d = DIRECCIONES[dir];
+        return [pos[0] + d[0], pos[1] + d[1]];
+    }
+
+    function tipoEnSeguro(nivel, r, c){
+        if (r < 0 || r >= nivel.mapa.length || c < 0 || c >= nivel.mapa[0].length){
+            return "1";
         }
-        if (pos[1] === salida[1]){
-            let desde = Math.min(pos[0], salida[0]) + 1;
-            let hasta = Math.max(pos[0], salida[0]);
-            for (let r = desde; r < hasta; r++){
-                if (esPared(nivel, r, pos[1])){ return false; }
-            }
-            return true;
+        return nivel.mapa[r][c];
+    }
+
+    // ¿La salida está en esa dirección, en línea recta y sin paredes entre medias?
+    function salidaEnDireccion(nivel, pos, dir){
+        let salida = nivel.salida;
+        let d = DIRECCIONES[dir];
+        if (d[0] !== 0 && pos[1] !== salida[1]){ return false; }
+        if (d[1] !== 0 && pos[0] !== salida[0]){ return false; }
+        let r = pos[0] + d[0];
+        let c = pos[1] + d[1];
+        while (r >= 0 && r < nivel.mapa.length && c >= 0 && c < nivel.mapa[0].length){
+            if (r === salida[0] && c === salida[1]){ return true; }
+            if (esPared(nivel, r, c)){ return false; }
+            r += d[0];
+            c += d[1];
         }
         return false;
     }
 
-    function evaluarCondicion(nivel, cond, pos){
-        if (cond === "exit visible"){ return veSalida(nivel, pos); }
-        if (cond === "ice"){ return tipoEn(nivel, pos) === "H"; }
-        if (cond === "trap"){ return tipoEn(nivel, pos) === "T"; }
-        if (cond === "teleport"){ return tipoEn(nivel, pos) === "P"; }
-        if (cond === "arrow"){ return !!FLECHAS[tipoEn(nivel, pos)]; }
-        let dir = DIRECCIONES[cond.slice("wall ".length)];
-        return esPared(nivel, pos[0] + dir[0], pos[1] + dir[1]);
+    function veSalida(nivel, pos){
+        return Object.keys(DIRECCIONES).some(function(dir){
+            return salidaEnDireccion(nivel, pos, dir);
+        });
     }
 
-    function cumple(nivel, cond, pos, negada){
-        let resultado = evaluarCondicion(nivel, cond, pos);
+    function evaluarCondicion(nivel, cond, pos, dir){
+        if (dir && !DIRECCIONES.hasOwnProperty(dir)){ return false; }
+        if (cond === "wall"){
+            if (!dir){ return false; }
+            let pared = posicionEn(pos, dir);
+            return esPared(nivel, pared[0], pared[1]);
+        }
+        if (cond === "exit visible"){
+            return dir ? salidaEnDireccion(nivel, pos, dir) : veSalida(nivel, pos);
+        }
+        let objetivo = dir ? posicionEn(pos, dir) : pos;
+        let tipo = tipoEnSeguro(nivel, objetivo[0], objetivo[1]);
+        if (cond === "ice"){ return tipo === "H"; }
+        if (cond === "trap"){ return tipo === "T"; }
+        if (cond === "teleport"){ return tipo === "P"; }
+        if (cond === "arrow"){ return !!FLECHAS[tipo]; }
+        return false;
+    }
+
+    function cumple(nivel, cond, pos, negada, dir){
+        let resultado = evaluarCondicion(nivel, cond, pos, dir);
         return negada ? !resultado : resultado;
     }
 
@@ -217,8 +241,16 @@
                     if (!Number.isInteger(nodo.n) || nodo.n < 1 || nodo.n > LIMITES.repeticiones){
                         return "El número de repeticiones debe estar entre 1 y " + LIMITES.repeticiones;
                     }
-                } else if (CONDICIONES.indexOf(nodo.cond) === -1){
-                    return "Condición no válida: " + nodo.cond;
+                } else {
+                    if (CONDICIONES.indexOf(nodo.cond) === -1){
+                        return "Condición no válida: " + nodo.cond;
+                    }
+                    if (nodo.dir !== undefined && !DIRECCIONES.hasOwnProperty(nodo.dir)){
+                        return "Dirección no válida: " + nodo.dir;
+                    }
+                    if (nodo.cond === "wall" && !DIRECCIONES.hasOwnProperty(nodo.dir)){
+                        return "La condición wall necesita una dirección";
+                    }
                 }
                 error = revisarLista(nodo.cuerpo, profundidad + 1);
                 if (error){ return error; }
@@ -271,12 +303,12 @@
                         ejecutar(nodo.cuerpo);
                     }
                 } else if (nodo.tipo === "while"){
-                    while (!parado && cumple(nivel, nodo.cond, pos, nodo.negada)){
+                    while (!parado && cumple(nivel, nodo.cond, pos, nodo.negada, nodo.dir)){
                         if (++visitas > LIMITES.pasosBucle){ parado = true; return; }
                         ejecutar(nodo.cuerpo);
                     }
                 } else if (nodo.tipo === "if"){
-                    if (cumple(nivel, nodo.cond, pos, nodo.negada)){
+                    if (cumple(nivel, nodo.cond, pos, nodo.negada, nodo.dir)){
                         ejecutar(nodo.cuerpo);
                     } else if (nodo.otro){
                         ejecutar(nodo.otro);

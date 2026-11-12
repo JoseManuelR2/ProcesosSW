@@ -247,16 +247,20 @@ esperan rival, a los 10.
 ```json
 [
   { "tipo": "repeat", "n": 3, "cuerpo": [ { "tipo": "mv", "dir": "down" } ] },
-  { "tipo": "while", "cond": "exit visible", "negada": true, "cuerpo": [ { "tipo": "mv", "dir": "right" } ] },
-  { "tipo": "if", "cond": "wall up", "cuerpo": [ { "tipo": "mv", "dir": "left" } ], "otro": [] }
+  { "tipo": "while", "cond": "exit visible", "dir": "right", "negada": true, "cuerpo": [ { "tipo": "mv", "dir": "right" } ] },
+  { "tipo": "if", "cond": "wall", "dir": "up", "cuerpo": [ { "tipo": "mv", "dir": "left" } ], "otro": [] }
 ]
 ```
 
-Condiciones: `wall up`, `wall down`, `wall left`, `wall right` (hay pared en esa
-dirección desde la posición actual), `exit visible` (la salida está en línea recta
-sin paredes), `ice`, `trap`, `teleport` y `arrow` (la casilla actual es de ese tipo).
-Cualquier condición se puede negar con `"negada": true`; en el editor se hace con
-el botón `!` que aparece a la izquierda del desplegable.
+Condiciones: `wall` (hay pared en la dirección elegida), `exit visible` (la salida
+está en línea recta en esa dirección, sin paredes), y `ice`, `trap`, `teleport` y
+`arrow` (la casilla vecina en esa dirección es de ese tipo). La dirección se indica
+aparte con `"dir": "left" | "right" | "up" | "down"`.
+
+Cualquier condición se puede negar con `"negada": true`. En el editor, el botón `!`
+queda a la izquierda de la condición y el desplegable de dirección al final, así que
+se puede componer, por ejemplo, `while` + `!` + `trap` + `left` (mientras no haya
+una trampa a la izquierda).
 
 El servidor y el navegador usan el mismo intérprete (`compartido/laberinto.js`),
 así que lo que ves en "Test" es lo que se ejecuta.

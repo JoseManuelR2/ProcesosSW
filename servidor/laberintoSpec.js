@@ -101,9 +101,9 @@ describe("Validación de programas", function(){
         let programa = [
             MOV("right"),
             { tipo: "repeat", n: 2, cuerpo: [MOV("down")] },
-            { tipo: "while", cond: "exit visible", negada: true, cuerpo: [MOV("right")] },
-            { tipo: "if", cond: "ice", negada: true, cuerpo: [MOV("left")] },
-            { tipo: "if", cond: "wall up", cuerpo: [MOV("left")], otro: [MOV("up")] }
+            { tipo: "while", cond: "exit visible", dir: "right", negada: true, cuerpo: [MOV("right")] },
+            { tipo: "if", cond: "ice", dir: "left", negada: true, cuerpo: [MOV("left")] },
+            { tipo: "if", cond: "wall", dir: "up", cuerpo: [MOV("left")], otro: [MOV("up")] }
         ];
         expect(L.validar(programa)).toBeNull();
     });
@@ -115,7 +115,15 @@ describe("Validación de programas", function(){
     it("rechaza direcciones, tipos y condiciones desconocidas", function(){
         expect(L.validar([MOV("diagonal")])).not.toBeNull();
         expect(L.validar([{ tipo: "salto" }])).not.toBeNull();
-        expect(L.validar([{ tipo: "if", cond: "wall ahead", cuerpo: [] }])).not.toBeNull();
+        expect(L.validar([{ tipo: "if", cond: "wall ahead", dir: "up", cuerpo: [] }])).not.toBeNull();
+    });
+
+    it("rechaza una dirección de condición desconocida", function(){
+        expect(L.validar([{ tipo: "if", cond: "trap", dir: "diagonal", cuerpo: [] }])).not.toBeNull();
+    });
+
+    it("la condición wall exige dirección", function(){
+        expect(L.validar([{ tipo: "if", cond: "wall", cuerpo: [] }])).not.toBeNull();
     });
 
     it("rechaza una negación que no es booleana", function(){
@@ -136,7 +144,7 @@ describe("Validación de programas", function(){
 
     it("rechaza más de 4 niveles de anidamiento", function(){
         let anidado = [MOV("right")];
-        for (let i = 0; i < 5; i++){ anidado = [{ tipo: "if", cond: "wall up", cuerpo: anidado }]; }
+        for (let i = 0; i < 5; i++){ anidado = [{ tipo: "if", cond: "wall", dir: "up", cuerpo: anidado }]; }
         expect(L.validar(anidado)).not.toBeNull();
     });
 });
@@ -154,47 +162,67 @@ describe("Ejecución del programa (trazar)", function(){
     });
 
     it("while con la condición negada repite hasta que deja de cumplirse", function(){
-        let t = L.trazar(PASILLO, [1, 1], [{ tipo: "while", cond: "wall right", negada: true, cuerpo: [MOV("right")] }]);
+        let t = L.trazar(PASILLO, [1, 1], [{ tipo: "while", cond: "wall", dir: "right", negada: true, cuerpo: [MOV("right")] }]);
         expect(t.llega).toBeTrue();
         expect(t.final).toEqual([1, 6]);
     });
 
     it("if ejecuta el cuerpo cuando la condición es cierta y la rama 'otro' cuando es falsa", function(){
-        let conPared = [{ tipo: "if", cond: "wall up", cuerpo: [MOV("right")], otro: [MOV("down")] }];
+        let conPared = [{ tipo: "if", cond: "wall", dir: "up", cuerpo: [MOV("right")], otro: [MOV("down")] }];
         expect(L.trazar(PASILLO, [1, 1], conPared).final).toEqual([1, 2]);
-        let sinPared = [{ tipo: "if", cond: "wall up", negada: true, cuerpo: [MOV("left")], otro: [MOV("right")] }];
+        let sinPared = [{ tipo: "if", cond: "wall", dir: "up", negada: true, cuerpo: [MOV("left")], otro: [MOV("right")] }];
         expect(L.trazar(PASILLO, [1, 1], sinPared).final).toEqual([1, 2]);
     });
 
     it("la negación invierte la condición", function(){
-        let normal = [{ tipo: "if", cond: "wall up", cuerpo: [MOV("right")] }];
-        let negada = [{ tipo: "if", cond: "wall up", negada: true, cuerpo: [MOV("right")] }];
+        let normal = [{ tipo: "if", cond: "wall", dir: "up", cuerpo: [MOV("right")] }];
+        let negada = [{ tipo: "if", cond: "wall", dir: "up", negada: true, cuerpo: [MOV("right")] }];
         expect(L.trazar(PASILLO, [1, 1], normal).camino.length).toBe(1);
         expect(L.trazar(PASILLO, [1, 1], negada).camino.length).toBe(0);
     });
 
-    it("'exit visible' detecta la salida en línea recta sin paredes entre medias", function(){
-        let ve = [{ tipo: "if", cond: "exit visible", cuerpo: [MOV("right")] }];
-        let noVe = [{ tipo: "if", cond: "exit visible", negada: true, cuerpo: [MOV("right")] }];
-        expect(L.trazar(VISTA, [1, 4], ve).final).toEqual([1, 5]);
-        expect(L.trazar(VISTA, [1, 1], ve).final).toEqual([1, 1]);
-        expect(L.trazar(VISTA, [1, 1], noVe).final).toEqual([1, 2]);
+    it("'exit visible' mira en la dirección indicada y detecta paredes entre medias", function(){
+        let derecha = [{ tipo: "if", cond: "exit visible", dir: "right", cuerpo: [MOV("right")] }];
+        let izquierda = [{ tipo: "if", cond: "exit visible", dir: "left", cuerpo: [MOV("right")] }];
+        expect(L.trazar(VISTA, [1, 4], derecha).final).toEqual([1, 5]);
+        expect(L.trazar(VISTA, [1, 4], izquierda).final).toEqual([1, 4]);
+        expect(L.trazar(VISTA, [1, 1], derecha).final).toEqual([1, 1]);
     });
 
-    it("los sensores detectan la casilla en la que está el robot", function(){
-        expect(L.trazar(HIELO, [1, 2], [{ tipo: "if", cond: "ice", cuerpo: [MOV("right")] }]).final).toEqual([1, 4]);
-        expect(L.trazar(TRAMPA, [1, 2], [{ tipo: "if", cond: "trap", cuerpo: [MOV("right")] }]).final).toEqual([1, 3]);
-        expect(L.trazar(TELEPORT, [1, 2], [{ tipo: "if", cond: "teleport", cuerpo: [MOV("right")] }]).final).toEqual([1, 3]);
-        expect(L.trazar(FLECHA, [1, 2], [{ tipo: "if", cond: "arrow", cuerpo: [MOV("right")] }]).final).toEqual([1, 3]);
+    it("los sensores miran la casilla vecina en la dirección elegida", function(){
+        expect(L.trazar(HIELO, [1, 1], [{ tipo: "if", cond: "ice", dir: "right", cuerpo: [MOV("right")] }]).final).toEqual([1, 4]);
+        expect(L.trazar(TRAMPA, [1, 3], [{ tipo: "if", cond: "trap", dir: "left", cuerpo: [MOV("right")] }]).final).toEqual([1, 4]);
+        expect(L.trazar(TELEPORT, [1, 1], [{ tipo: "if", cond: "teleport", dir: "right", cuerpo: [MOV("right")] }]).final).toEqual([1, 7]);
+        expect(L.trazar(FLECHA, [1, 1], [{ tipo: "if", cond: "arrow", dir: "right", cuerpo: [MOV("right")] }]).final).toEqual([1, 2]);
+    });
+
+    it("la negación también se aplica a una condición direccional", function(){
+        let t = L.trazar(TRAMPA, [1, 4], [{ tipo: "if", cond: "trap", dir: "left", negada: true, cuerpo: [MOV("right")] }]);
+        expect(t.llega).toBeTrue();
+        expect(t.final).toEqual([1, 5]);
+    });
+
+    it("se compone while + negación + sensor + dirección ('mientras no haya trampa a la izquierda')", function(){
+        let nivel = {
+            filas: 3, columnas: 10,
+            mapa: ["1111111111", "10T0000001", "1111111111"],
+            salida: [1, 8], inicios: [[1, 1], [1, 4]], maxPasos: 20
+        };
+        let t = L.trazar(nivel, [1, 4], [
+            { tipo: "while", cond: "trap", dir: "left", negada: true, cuerpo: [MOV("right")] }
+        ]);
+        expect(t.llega).toBeTrue();
+        expect(t.final).toEqual([1, 8]);
+        expect(t.camino.length).toBe(4);
     });
 
     it("un bucle sin movimientos se corta y no se queda colgado", function(){
-        let t = L.trazar(PASILLO, [1, 1], [{ tipo: "while", cond: "wall up", cuerpo: [] }]);
+        let t = L.trazar(PASILLO, [1, 1], [{ tipo: "while", cond: "wall", dir: "up", cuerpo: [] }]);
         expect(t.camino.length).toBe(0);
     });
 
     it("nunca supera el máximo del nivel aunque el bucle sea infinito", function(){
-        let t = L.trazar(PASILLO, [1, 1], [{ tipo: "while", cond: "wall up", cuerpo: [MOV("up")] }]);
+        let t = L.trazar(PASILLO, [1, 1], [{ tipo: "while", cond: "wall", dir: "up", cuerpo: [MOV("up")] }]);
         expect(t.camino.length).toBe(PASILLO.maxPasos);
     });
 });

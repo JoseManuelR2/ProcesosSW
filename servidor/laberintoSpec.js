@@ -122,6 +122,39 @@ describe("Ejecución del programa (trazar)", function(){
     });
 });
 
+describe("Casillas especiales", function(){
+    // Pasillo de una fila: [1,1] inicio, [1,4] salida.
+    const HIELO = { salida: [1, 5], mapa: ["111111", "10HH001", "111111"] };
+    const TRAMPA = { salida: [1, 4], mapa: ["111111", "10T001", "111111"] };
+
+    it("en el hielo el robot resbala en la misma dirección hasta la siguiente casilla libre", function(){
+        let t = L.trazar(HIELO, [1, 1], [MOV("right")]);
+        expect(t.final).toEqual([1, 4]);
+    });
+
+    it("una salida al final del hielo también se alcanza deslizando", function(){
+        let t = L.trazar(HIELO, [1, 1], [MOV("right"), MOV("right")]);
+        expect(t.llega).toBeTrue();
+        expect(t.final).toEqual([1, 5]);
+    });
+
+    it("pisar una trampa devuelve al robot a su salida", function(){
+        let t = L.trazar(TRAMPA, [1, 1], [MOV("right")]);
+        expect(t.final).toEqual([1, 1]);
+        expect(t.camino.length).toBe(1);
+    });
+
+    it("una trampa que corta el único pasillo hace imposible llegar", function(){
+        expect(L.distanciaSalida(TRAMPA, [1, 1], [1, 1])).toBe(Infinity);
+    });
+
+    it("la búsqueda de rutas sigue el hielo: el bot resuelve el nivel de hielo", function(){
+        let nivel = L.obtenerNivel("hielo");
+        let programa = L.programaBot(nivel, L.INICIOS[0]);
+        expect(L.trazar(nivel, L.INICIOS[0], programa).llega).toBeTrue();
+    });
+});
+
 describe("Resolución de la carrera", function(){
     function traza(camino, llega, final){
         return { camino: camino, llega: llega, final: final };
@@ -162,12 +195,13 @@ describe("Resolución de la carrera", function(){
         expect(res.razon).toBe("más cerca de la salida");
     });
 
-    it("la fotografía de la carrera tiene una posición por jugador y paso", function(){
+    it("la fotografía de la carrera empieza con cada robot en su salida", function(){
         let trazas = [traza([[2, 1], [3, 1]], false, [3, 1]), traza([[8, 2]], false, [8, 2])];
         let pasos = L.lineaTemporal(CLASICO, L.INICIOS, trazas);
-        expect(pasos.length).toBe(2);
-        expect(pasos[1].posiciones[0]).toEqual([3, 1]);
-        expect(pasos[1].posiciones[1]).toEqual([8, 2]);
+        expect(pasos.length).toBe(3);
+        expect(pasos[0].posiciones).toEqual([[1, 1], [8, 8]]);
+        expect(pasos[1].posiciones).toEqual([[2, 1], [8, 2]]);
+        expect(pasos[2].posiciones).toEqual([[3, 1], [8, 2]]);
     });
 });
 

@@ -139,6 +139,7 @@ JuegoWeb.prototype.mostrarLobby = function(){
     let html = '<div class="card p-4 mt-3"><h4>Maze Duel</h4>';
     html += '<p class="text-muted">Program your robot with blocks. First to reach the exit wins.</p>';
     html += '<ul class="small text-muted">';
+    html += '<li>Ice (❄) slides your robot until the next free square. A trap (✖) sends it back to your start.</li>';
     html += '<li>Max 50 moves per program and 60 blocks.</li>';
     html += '<li>The fastest robot to the exit wins. If nobody arrives, the closest one by path wins.</li>';
     html += '<li>Same number of moves and arrival: draw.</li>';
@@ -203,6 +204,7 @@ JuegoWeb.prototype.abrirEditor = function(partida){
     this.cw.limpiarMensaje();
     let nivel = L.obtenerNivel(partida.nivel);
     let html = '<div class="card p-4 mt-3"><h4>Game ' + escapar(partida.id) + ' · ' + escapar(nivel.nombre) + '</h4>';
+    html += '<p class="mb-1">' + this.textoIdentidad() + '</p>';
     html += '<p id="estadoPartida" class="mb-2"></p>';
     html += '<div class="row"><div class="col-md-3"><h6>Block palette (drag or click)</h6>';
     html += '<div id="paleta" style="display:flex;flex-direction:column;gap:4px;">';
@@ -219,7 +221,7 @@ JuegoWeb.prototype.abrirEditor = function(partida){
     html += '<p id="estadoPrograma" class="mt-2 small text-muted"></p>';
     html += '<div id="timerDisplay" class="mt-1 text-warning font-weight-bold" style="display:none;"></div>';
     html += '<div id="previewLaberinto" class="mt-2"></div></div>';
-    html += '<div class="col-md-4">' + this.renderizarLaberinto(nivel, {}) + '</div>';
+    html += '<div class="col-md-4">' + this.renderizarLaberinto(nivel, { inicios: [this.miIndice()] }) + '</div>';
     html += '</div></div>';
     $("#contenido").html(html);
     this.renderWorkspace();
@@ -389,7 +391,8 @@ JuegoWeb.prototype.probarPrograma = function(){
         $("#previewLaberinto").html('<p class="text-danger small">' + escapar(error) + '</p>');
         return;
     }
-    let traza = L.trazar(nivel, L.INICIOS[0], programa);
+    let indice = this.miIndice();
+    let traza = L.trazar(nivel, L.INICIOS[indice], programa);
     if (traza.camino.length === 0){
         $("#previewLaberinto").html('<p class="text-warning small">Your program does not move the robot.</p>');
         return;
@@ -400,7 +403,12 @@ JuegoWeb.prototype.probarPrograma = function(){
         paso++;
         let recorrido = traza.camino.slice(0, paso);
         let actual = recorrido[recorrido.length - 1];
-        let html = self.renderizarLaberinto(nivel, { p1: actual, camino: recorrido, actual: actual });
+        let html = self.renderizarLaberinto(nivel, {
+            robots: [{ pos: actual, indice: indice }],
+            inicios: [indice],
+            camino: recorrido,
+            actual: actual
+        });
         html += '<p class="small mt-1">Step ' + paso + '/' + traza.camino.length + '</p>';
         if (paso >= traza.camino.length){
             self.detenerAnimacion();
@@ -464,6 +472,7 @@ JuegoWeb.prototype.mostrarResultado = function(resultado){
     let self = this;
     let nivel = L.obtenerNivel(resultado.nivel);
     let jugadores = resultado.jugadores;
+    let miIndice = this.miIndice();
     let html = '<div class="card p-4 mt-3"><h4>Result · ' + escapar(nivel.nombre) + '</h4>';
 
     if (!resultado.ganador){
@@ -477,11 +486,13 @@ JuegoWeb.prototype.mostrarResultado = function(resultado){
     html += '<p class="mb-1">Moves used:</p><ul>';
     jugadores.forEach(function(email, i){
         let color = i === 0 ? "blue" : "red";
-        html += '<li><span style="color:' + color + ';">' + (i === 0 ? "●" : "●") + '</span> ' + escapar(email) + ': ' + resultado.comandos[email] + '</li>';
+        let tu = i === miIndice ? " (you)" : "";
+        html += '<li><span style="color:' + color + ';font-weight:bold;">Player ' + (i + 1) + ' (' + color + ')</span>' +
+            escapar(tu) + ': ' + escapar(email) + ' · ' + resultado.comandos[email] + ' moves</li>';
     });
     html += '</ul>';
-    html += '<div id="tableroResultado">' + this.renderizarLaberinto(nivel, {}) + '</div>';
-    html += '<p class="small text-muted">Blue = player 1, red = player 2, green = exit.</p>';
+    html += '<div id="tableroResultado">' + this.renderizarLaberinto(nivel, { inicios: [miIndice] }) + '</div>';
+    html += '<p class="small text-muted">Green = exit. Your start square is shown in ' + (miIndice === 0 ? "blue" : "red") + '.</p>';
     html += '<button id="btnVolverLobby" class="btn btn-primary mt-2">Back to lobby</button>';
     html += '</div>';
     $("#contenido").html(html);
@@ -489,9 +500,10 @@ JuegoWeb.prototype.mostrarResultado = function(resultado){
     let pasos = resultado.pasos || [];
     let indice = 0;
     let dibujar = function(frame){
-        let p1 = frame.posiciones[0];
-        let p2 = frame.posiciones[1];
-        $("#tableroResultado").html(self.renderizarLaberinto(nivel, { p1: p1, p2: p2 }));
+        $("#tableroResultado").html(self.renderizarLaberinto(nivel, {
+            robots: [{ pos: frame.posiciones[0], indice: 0 }, { pos: frame.posiciones[1], indice: 1 }],
+            inicios: [miIndice]
+        }));
     };
     if (pasos.length === 0){
         return dibujar({ posiciones: [resultado.posicionesFinales[jugadores[0]], resultado.posicionesFinales[jugadores[1]]] });
@@ -509,30 +521,63 @@ JuegoWeb.prototype.mostrarResultado = function(resultado){
 
 // --- Dibujo del laberinto ---
 
-// opciones: p1, p2 (posiciones actuales), camino (ruta a resaltar), actual (paso actual)
+// Índice del jugador (0 = jugador 1, 1 = jugador 2) en la partida actual.
+JuegoWeb.prototype.miIndice = function(){
+    let indice = this.partidaActual && this.usuario ? this.partidaActual.jugadores.indexOf(this.usuario.email) : -1;
+    return indice === -1 ? 0 : indice;
+};
+
+// opciones:
+//   robots:  [{ pos: [r, c], indice: 0|1 }]  robots a dibujar (azul = jugador 1, rojo = jugador 2)
+//   inicios: [indice]                        solo se marca la salida de estos jugadores
+//   camino:  [[r, c]]                        ruta a resaltar
+//   actual:  [r, c]                          posición del paso actual
 JuegoWeb.prototype.renderizarLaberinto = function(nivel, opciones){
-    let html = '<div class="maze-grid">';
+    let robots = opciones.robots || [];
+    let inicios = opciones.inicios || [];
     let igual = function(a, b){ return !!a && !!b && a[0] === b[0] && a[1] === b[1]; };
+    let robotEn = function(celda){
+        return robots.find(function(robot){ return igual(robot.pos, celda); }) || null;
+    };
+    let html = '<div class="maze-grid">';
     for (let r = 0; r < nivel.mapa.length; r++){
         for (let c = 0; c < nivel.mapa[r].length; c++){
             let celda = [r, c];
+            let robot = robotEn(celda);
+            let tipo = nivel.mapa[r][c];
             let cls = "maze-cell";
-            if (nivel.mapa[r][c] === "1"){ cls += " maze-wall"; }
+            let simbolo = "";
+            if (tipo === "1"){ cls += " maze-wall"; }
             else if (igual(celda, nivel.salida)){ cls += " maze-exit"; }
-            else if (igual(celda, L.INICIOS[0])){ cls += " maze-start"; }
-            else if (igual(celda, L.INICIOS[1])){ cls += " maze-start2"; }
-
-            let jugador = igual(celda, opciones.p1) || igual(celda, opciones.p2);
-            if (opciones.camino && !jugador && opciones.camino.some(function(p){ return igual(p, celda); })){
+            else {
+                inicios.forEach(function(indice){
+                    if (igual(celda, L.INICIOS[indice])){
+                        cls += indice === 0 ? " maze-start" : " maze-start2";
+                    }
+                });
+                if (tipo === "H"){ cls += " maze-hielo"; simbolo = "❄"; }
+                if (tipo === "T"){ cls += " maze-trampa"; simbolo = "✖"; }
+            }
+            if (opciones.camino && !robot && opciones.camino.some(function(p){ return igual(p, celda); })){
                 cls += " maze-path";
             }
             if (igual(celda, opciones.actual)){ cls += " maze-current"; }
-            if (igual(celda, opciones.p1)){ cls += " maze-p1"; }
-            if (igual(celda, opciones.p2)){ cls += " maze-p2"; }
-            html += '<div class="' + cls + '"></div>';
+            if (robot){ cls += robot.indice === 0 ? " maze-p1" : " maze-p2"; simbolo = robot.indice === 0 ? "1" : "2"; }
+            html += '<div class="' + cls + '">' + simbolo + '</div>';
         }
     }
     return html + '</div>';
+};
+
+// Texto que explica a cada jugador quién es y de dónde sale.
+JuegoWeb.prototype.textoIdentidad = function(){
+    let indice = this.miIndice();
+    let color = indice === 0 ? "blue" : "red";
+    let rival = indice === 0 ? "red" : "blue";
+    let esquina = indice === 0 ? "top-left" : "bottom-right";
+    return '<span style="color:' + color + ';font-weight:bold;">You are Player ' + (indice + 1) + ' (' + color + ').</span> ' +
+        'Your robot starts in the ' + esquina + ' corner, on the ' + color + ' square. ' +
+        'The ' + rival + ' square is your opponent\'s start and is not shown.';
 };
 
 // --- Socket ---

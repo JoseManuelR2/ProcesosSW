@@ -153,7 +153,7 @@ async function main(){
             if (!email){ socket.emit("error", "No identificado"); return; }
             let partida = gestorPartidas.obtener(data.id);
             if (!partida){ socket.emit("error", "Partida no encontrada"); return; }
-            let res = partida.programar(email, data.comandos);
+            let res = partida.programar(email, data.codigo);
             if (res.error){ socket.emit("error", res.error); return; }
             socket.emit("programado", { ok: true, comandos: res.comandos });
             console.log("Programado por " + email + " en " + data.id + ". Ambos: " + partida.ambosProgramados());

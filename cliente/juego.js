@@ -103,15 +103,22 @@ JuegoWeb.prototype.mostrarEditor = function(partida){
     cadena += '<p class="text-muted small">Comandos: <code>mv up/down/left/right</code>, <code>repeat N ... end</code>, <code>for N ... end</code>, <code>while true ... end</code>. Usa <code>#</code> para comentarios.</p>';
     cadena += '<textarea id="codigoEditor" class="form-control" rows="10" style="font-family:monospace;" placeholder="mv right\nmv down\nrepeat 3\n  mv right\nend"></textarea>';
     cadena += '<div class="mt-2">';
-    cadena += '<button id="btnEnviar" class="btn btn-success btn-sm">Enviar programa</button>';
+    cadena += '<button id="btnProbar" class="btn btn-info btn-sm">Probar</button>';
+    cadena += '<button id="btnEnviar" class="btn btn-success btn-sm ml-1">Enviar programa</button>';
     cadena += '<button id="btnLimpiar" class="btn btn-danger btn-sm ml-1">Limpiar</button>';
     cadena += '</div>';
     cadena += '<p id="estadoPrograma" class="mt-2 text-muted"></p>';
+    cadena += '<p id="timerDisplay" class="mt-1 text-warning font-weight-bold" style="display:none;"></p>';
+    cadena += '<div id="previewLaberinto" class="mt-2"></div>';
     cadena += '</div></div></div>';
     $("#contenido").html(cadena);
 
     $("#btnLimpiar").on("click", function(){
         $("#codigoEditor").val("");
+    });
+
+    $("#btnProbar").on("click", function(){
+        self.probarCodigo();
     });
 
     $("#btnEnviar").on("click", function(){
@@ -153,6 +160,73 @@ JuegoWeb.prototype.mostrarResultado = function(resultado){
     $("#btnVolverLobby").on("click", function(){ self.mostrarLobby(); self.socket.emit("solicitarLista"); });
 };
 
+// Simula la ejecución del código localmente sin enviar al servidor.
+JuegoWeb.prototype.probarCodigo = function(){
+    let codigo = $("#codigoEditor").val() || "";
+    // Parsear en el cliente (misma lógica que el servidor).
+    let lineas = codigo.split("\\n").map(function(l){ return l.trim(); }).filter(function(l){ return l && !l.startsWith("#"); });
+    let comandos = [];
+    // Parser simplificado (sin loops por ahora, solo mv).
+    for (let i = 0; i < lineas.length; i++){
+        let linea = lineas[i];
+        if (linea.startsWith("mv ")){
+            let dir = linea.split(/\\s+/)[1];
+            if (["up","down","left","right"].indexOf(dir) !== -1){
+                comandos.push(dir);
+            }
+        } else if (linea.startsWith("repeat ") || linea.startsWith("for ")){
+            // Skip loop headers in simple preview.
+        } else if (linea === "end"){
+            // Skip.
+        } else if (linea.startsWith("while ")){
+            // Skip.
+        }
+    }
+    // Simular movimiento.
+    let pos = [1, 1]; // Start position for player 1
+    let path = [pos.slice()];
+    for (let i = 0; i < comandos.length; i++){
+        let dir = comandos[i];
+        let dr = 0, dc = 0;
+        if (dir === "up"){ dr = -1; }
+        else if (dir === "down"){ dr = 1; }
+        else if (dir === "left"){ dc = -1; }
+        else if (dir === "right"){ dc = 1; }
+        let nr = pos[0] + dr;
+        let nc = pos[1] + dc;
+        // Check wall.
+        if (nr >= 0 && nr < MAZE.length && nc >= 0 && nc < MAZE[0].length && MAZE[nr][nc] !== 1){
+            pos = [nr, nc];
+        }
+        path.push(pos.slice());
+        if (pos[0] === EXIT[0] && pos[1] === EXIT[1]){
+            break;
+        }
+    }
+    // Render path.
+    let html = '<div class="maze-grid">';
+    for (let r = 0; r < MAZE.length; r++){
+        for (let c = 0; c < MAZE[r].length; c++){
+            let cls = "maze-cell";
+            if (MAZE[r][c] === 1){ cls += " maze-wall"; }
+            else if (r === EXIT[0] && c === EXIT[1]){ cls += " maze-exit"; }
+            // Check if this cell is in the path.
+            let inPath = path.some(function(p){ return p[0] === r && p[1] === c; });
+            if (inPath){ cls += " maze-path"; }
+            if (pos[0] === r && pos[1] === c){ cls += " maze-p1"; }
+            html += '<div class="' + cls + '"></div>';
+        }
+    }
+    html += '</div>';
+    html += '<p class="small mt-1">Pasos: ' + comandos.length + ' | Posición final: (' + pos[0] + ', ' + pos[1] + ')</p>';
+    if (pos[0] === EXIT[0] && pos[1] === EXIT[1]){
+        html += '<p class="text-success small">¡Llega a la salida!</p>';
+    } else {
+        html += '<p class="text-warning small">No llega a la salida.</p>';
+    }
+    $("#previewLaberinto").html(html);
+};
+
 JuegoWeb.prototype.actualizarListaPartidas = function(lista){
     let self = this;
     if (!self.usuario){
@@ -190,6 +264,27 @@ JuegoWeb.prototype.actualizarListaPartidas = function(lista){
     $(".btn-cancelar").on("click", function(){ self.socket.emit("cancelarPartida", $(this).data("id")); });
 };
 
+JuegoWeb.prototype.iniciarTimer = function(segundos){
+    let self = this;
+    if (this._timerHandle){ clearInterval(this._timerHandle); }
+    this._timerHandle = setInterval(function(){
+        segundos--;
+        if (segundos <= 0){
+            clearInterval(self._timerHandle);
+            self._timerHandle = null;
+            $("#timerDisplay").hide();
+            // Auto-enviar el programa actual.
+            let codigo = $("#codigoEditor").val() || "";
+            if (self.usuario && self.partidaActual){
+                if (!self.socket.connected){ self.socket.connect(); }
+                self.socket.emit("identificar", self.usuario.email);
+                self.socket.emit("programar", { id: self.partidaActual.id, codigo: codigo });
+                self.cw.mostrarMensaje("Tiempo agotado. Programa enviado automáticamente.", "warning");
+            }
+        }
+    }, 1000);
+};
+
 JuegoWeb.prototype.escapar = function(texto){
     return String(texto).replace(/[&<>"']/g, function(c){
         return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
@@ -211,6 +306,16 @@ function configurarSocket(juego){
         juego.partidaActual = partida;
         if (partida.estado === "programando" && partida.jugadores.indexOf(juego.usuario.email) !== -1){
             juego.mostrarEditor(partida);
+        }
+    });
+    juego.socket.on("timerInicio", function(data){
+        $("#timerDisplay").show().text("Tiempo restante: " + data.segundos + "s (el otro jugador ya envió su programa)");
+        juego.iniciarTimer(data.segundos);
+    });
+    juego.socket.on("timerTick", function(data){
+        $("#timerDisplay").text("Tiempo restante: " + data.segundos + "s");
+        if (data.segundos <= 0){
+            $("#timerDisplay").hide();
         }
     });
     juego.socket.on("resultado", function(resultado){

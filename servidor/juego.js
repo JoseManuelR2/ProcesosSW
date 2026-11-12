@@ -125,6 +125,9 @@ function Partida(id, creador){
     this.posiciones = {};         // email -> [r,c]
     this.ronda = 0;
     this.maxPasos = 50;
+    this.timer = null;            // handle del temporizador
+    this.tiempoRestante = 0;     // segundos restantes
+    this.quienProgramoPrimero = null; // email del primero en programar
 }
 
 Partida.prototype.agregarJugador = function(email){
@@ -155,6 +158,10 @@ Partida.prototype.programar = function(email, codigo){
         return { error: "Máximo " + this.maxPasos + " comandos" };
     }
     this.programas[email] = comandos.slice();
+    // Si es el primero en programar, iniciar temporizador de 15s para el otro.
+    if (this.quienProgramoPrimero === null){
+        this.quienProgramoPrimero = email;
+    }
     return { ok: true, comandos: comandos.slice() };
 };
 

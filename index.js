@@ -157,7 +157,33 @@ async function main(){
             if (res.error){ socket.emit("error", res.error); return; }
             socket.emit("programado", { ok: true, comandos: res.comandos });
             console.log("Programado por " + email + " en " + data.id + ". Ambos: " + partida.ambosProgramados());
+
+            // Si es el primero en programar, iniciar temporizador de 15s.
+            if (partida.quienProgramoPrimero === email && !partida.ambosProgramados()){
+                partida.tiempoRestante = 15;
+                io.to(data.id).emit("timerInicio", { segundos: 15, email: email });
+                partida.timer = setInterval(function(){
+                    partida.tiempoRestante--;
+                    io.to(data.id).emit("timerTick", { segundos: partida.tiempoRestante });
+                    if (partida.tiempoRestante <= 0){
+                        clearInterval(partida.timer);
+                        partida.timer = null;
+                        // Auto-enviar programa vacío para el otro jugador si no ha programado.
+                        let otro = partida.jugadores.find(function(e){ return e !== email; });
+                        if (otro && !partida.programas[otro]){
+                            partida.programar(otro, "mv right");
+                        }
+                        if (partida.ambosProgramados()){
+                            let resultado = partida.ejecutar();
+                            io.to(data.id).emit("resultado", resultado);
+                            io.emit("listaPartidas", gestorPartidas.listar());
+                        }
+                    }
+                }, 1000);
+            }
+
             if (partida.ambosProgramados()){
+                if (partida.timer){ clearInterval(partida.timer); partida.timer = null; }
                 // Ejecutar automáticamente cuando ambos están listos.
                 let resultado = partida.ejecutar();
                 io.to(data.id).emit("resultado", resultado);
@@ -179,6 +205,8 @@ async function main(){
         socket.on("cancelarPartida", function(id){
             let email = socketEmail[socket.id];
             if (email !== process.env.ADMIN_EMAIL){ return; }
+            let p = gestorPartidas.obtener(id);
+            if (p && p.timer){ clearInterval(p.timer); p.timer = null; }
             gestorPartidas.cancelar(id);
             io.emit("listaPartidas", gestorPartidas.listar());
             io.to(id).emit("partidaCancelada", { id: id });

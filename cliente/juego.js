@@ -20,7 +20,6 @@ const START = [1, 1];
 const BLOCK_PALETTE = [
     { type: "start", label: "▶ start", color: "#28a745", hasChildren: true, param: null },
     { type: "mv", label: "move", color: "#4C97FF", hasChildren: false, param: "right" },
-    { type: "repeat", label: "repeat", color: "#FFAB19", hasChildren: true, param: 3 },
     { type: "for", label: "for", color: "#FFAB19", hasChildren: true, param: 3 },
     { type: "while", label: "while", color: "#FFAB19", hasChildren: true, param: "not exit" },
     { type: "if", label: "if", color: "#FF8C1A", hasChildren: true, param: "wall ahead" },
@@ -74,7 +73,7 @@ JuegoWeb.prototype.renderBloque = function(blk, depth){
             html += '<option value="' + d + '"' + (blk.param === d ? ' selected' : '') + '>' + d + '</option>';
         });
         html += '</select>';
-    } else if (blk.type === "repeat" || blk.type === "for"){
+    } else if (blk.type === "for"){
         html += '<input type="number" class="block-param block-count" data-id="' + blk.id + '" value="' + blk.param + '" min="1" max="10" style="width:50px;">';
     } else if (blk.type === "while" || blk.type === "if" || blk.type === "ifelse"){
         html += '<select class="block-param" data-id="' + blk.id + '">';
@@ -234,22 +233,84 @@ JuegoWeb.prototype.mostrarEditor = function(partida){
         e.originalEvent.dataTransfer.effectAllowed = "copy";
     });
 
-    $("#workspace").on("dragover", function(e){
+    // Drop handler on workspace and all children containers
+    self.handleDrop = function(e, container){
         e.preventDefault();
-        e.originalEvent.dataTransfer.dropEffect = "copy";
-        $(this).css("background", "#e8f4fd");
-    }).on("dragleave", function(){
-        $(this).css("background", "#f8f9fa");
-    }).on("drop", function(e){
-        e.preventDefault();
-        $(this).css("background", "#f8f9fa");
+        e.stopPropagation();
+        container.css("background", "");
         let type = draggedType || e.originalEvent.dataTransfer.getData("text/plain");
-        if (type && BLOCK_PALETTE.find(function(b){ return b.type === type; })){
+        if (!type){ return; }
+        // Check if it's a new block from palette
+        let isPalette = BLOCK_PALETTE.some(function(b){ return b.type === type; });
+        if (isPalette){
             let blk = self.crearBloque(type);
-            self.workspace[0].children.push(blk);
+            // Find the parent block
+            let parentId = container.data("parent");
+            if (parentId){
+                let parent = self.buscarBloque(self.workspace, parentId);
+                if (parent){
+                    if (container.data("else") === 1){
+                        if (!parent.elseChildren){ parent.elseChildren = []; }
+                        parent.elseChildren.push(blk);
+                    } else {
+                        parent.children.push(blk);
+                    }
+                }
+            } else {
+                self.workspace[0].children.push(blk);
+            }
             self.renderWorkspace();
+            return;
         }
+        // Reorder existing block
+        let idx = -1, parentList = null;
+        // Find dragged block's current parent list
+        function findAndRemove(list, id){
+            for (let i = 0; i < list.length; i++){
+                if (list[i].id === id){ list.splice(i, 1); return true; }
+                if (findAndRemove(list[i].children, id)){ return true; }
+                if (list[i].elseChildren && findAndRemove(list[i].elseChildren, id)){ return true; }
+            }
+            return false;
+        }
+        let draggedBlk = self.buscarBloque(self.workspace, draggedId);
+        if (!draggedBlk){ draggedType = null; draggedId = null; return; }
+        // Remove from current location
+        findAndRemove(self.workspace, draggedId);
+        // Add to new container
+        let parentId = container.data("parent");
+        if (parentId){
+            let parent = self.buscarBloque(self.workspace, parentId);
+            if (parent){
+                if (container.data("else") === 1){
+                    if (!parent.elseChildren){ parent.elseChildren = []; }
+                    parent.elseChildren.push(draggedBlk);
+                } else {
+                    parent.children.push(draggedBlk);
+                }
+            }
+        } else {
+            self.workspace[0].children.push(draggedBlk);
+        }
+        self.renderWorkspace();
         draggedType = null;
+        draggedId = null;
+    }
+
+    // Use event delegation for drag/drop on all containers
+    $(document).off("dragover.drop").on("dragover.drop", "#workspace, .block-children, .block-else-children", function(e){
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.originalEvent.dataTransfer) {
+            e.originalEvent.dataTransfer.dropEffect = "copy";
+        }
+        $(this).css("background", "#e8f4fd");
+    });
+    $(document).off("dragleave.drop").on("dragleave.drop", "#workspace, .block-children, .block-else-children", function(e){
+        $(this).css("background", "");
+    });
+    $(document).off("drop.drop").on("drop.drop", "#workspace, .block-children, .block-else-children", function(e){
+        self.handleDrop(e, $(this));
     });
 
     $("#btnLimpiar").on("click", function(){
@@ -349,8 +410,8 @@ JuegoWeb.prototype.bloquesACodigo = function(lista, indent){
             lineas = lineas.concat(this.bloquesACodigo(blk.children, indent));
         } else if (blk.type === "mv"){
             lineas.push(indent + "mv " + blk.param);
-        } else if (blk.type === "repeat" || blk.type === "for"){
-            lineas.push(indent + (blk.type === "for" ? "for" : "repeat") + " " + blk.param);
+        } else if (blk.type === "for"){
+            lineas.push(indent + "for " + blk.param);
             lineas = lineas.concat(this.bloquesACodigo(blk.children, indent + "  "));
             lineas.push(indent + "end");
         } else if (blk.type === "while"){

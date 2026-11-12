@@ -8,8 +8,8 @@ const BLOQUES = [
     { tipo: "mv", etiqueta: "move", color: "#4C97FF", param: "right" },
     { tipo: "repeat", etiqueta: "repeat", color: "#FFAB19", contenedor: true, param: 3 },
     { tipo: "while", etiqueta: "while", color: "#FFAB19", contenedor: true, param: "exit visible" },
-    { tipo: "if", etiqueta: "if", color: "#FF8C1A", contenedor: true, param: "wall right" },
-    { tipo: "ifelse", etiqueta: "if/else", color: "#FF8C1A", contenedor: true, param: "wall right", conElse: true }
+    { tipo: "if", etiqueta: "if", color: "#FF8C1A", contenedor: true, param: "wall" },
+    { tipo: "ifelse", etiqueta: "if/else", color: "#FF8C1A", contenedor: true, param: "wall", conElse: true }
 ];
 
 const DIRECCIONES = Object.keys(L.DIRECCIONES);
@@ -78,6 +78,10 @@ JuegoWeb.prototype.registrarEventos = function(){
             } else {
                 blk.param = $(this).val();
             }
+        })
+        .on("change", ".block-dir", function(){
+            let blk = self.buscarBloque($(this).data("id"));
+            if (blk){ blk.dir = $(this).val(); }
         });
 
     // Arrastrar y soltar. Los manejadores están en document una sola vez.
@@ -254,6 +258,8 @@ JuegoWeb.prototype.actualizarEstadoEditor = function(){
 JuegoWeb.prototype.crearBloque = function(tipo){
     let pal = buscarPaleta(tipo);
     let blk = { id: "b" + (++this.contadorBloques), tipo: tipo, param: pal.param, children: [] };
+    // Las condiciones llevan una dirección aparte para mirar la casilla vecina.
+    if (tipo === "while" || tipo === "if" || tipo === "ifelse"){ blk.dir = "right"; }
     if (pal.conElse){ blk.elseChildren = []; }
     return blk;
 };
@@ -310,7 +316,16 @@ JuegoWeb.prototype.renderParametro = function(blk){
     opciones.forEach(function(o){
         html += '<option value="' + o + '"' + (blk.param === o ? ' selected' : '') + '>' + o + '</option>';
     });
-    return html + '</select>';
+    html += '</select>';
+    if (blk.tipo !== "mv"){
+        // Segundo desplegable, al final: hacia dónde mira la condición.
+        html += ' <select class="block-dir" data-id="' + blk.id + '">';
+        DIRECCIONES.forEach(function(d){
+            html += '<option value="' + d + '"' + (blk.dir === d ? ' selected' : '') + '>' + d + '</option>';
+        });
+        html += '</select>';
+    }
+    return html;
 };
 
 JuegoWeb.prototype.buscarBloque = function(id, lista){
@@ -391,9 +406,9 @@ JuegoWeb.prototype.programa = function(lista){
             return { tipo: "repeat", n: Number(blk.param), cuerpo: self.programa(blk.children) };
         }
         if (blk.tipo === "while"){
-            return { tipo: "while", cond: blk.param, negada: !!blk.negada, cuerpo: self.programa(blk.children) };
+            return { tipo: "while", cond: blk.param, dir: blk.dir, negada: !!blk.negada, cuerpo: self.programa(blk.children) };
         }
-        let nodo = { tipo: "if", cond: blk.param, negada: !!blk.negada, cuerpo: self.programa(blk.children) };
+        let nodo = { tipo: "if", cond: blk.param, dir: blk.dir, negada: !!blk.negada, cuerpo: self.programa(blk.children) };
         if (blk.tipo === "ifelse"){
             nodo.otro = self.programa(blk.elseChildren || []);
         }

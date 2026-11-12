@@ -116,7 +116,7 @@ describe("Maze Duel por sockets (integración)", function(){
         it("ya no acepta el email que manda el cliente: la identidad es la de la sesión", async function(){
             let ana = await socketDe(ANA);
             ana.emit("identificar", ADMIN);
-            ana.emit("crearPartida", { nivel: "clasico" });
+            ana.emit("crearPartida", { dificultad: "pequeno", semilla: 2024 });
             let partida = await esperar(ana, "partidaCreada");
             expect(partida.partida.creador).toBe(ANA);
         });
@@ -124,7 +124,7 @@ describe("Maze Duel por sockets (integración)", function(){
         it("una cuenta eliminada pierde el acceso en su siguiente acción", async function(){
             let ana = await socketDe(ANA);
             await servidor.modelo.eliminarUsuario({ email: ADMIN, rol: "administrador" }, ANA);
-            ana.emit("crearPartida", { nivel: "clasico" });
+            ana.emit("crearPartida", { dificultad: "pequeno", semilla: 2024 });
             let error = await esperar(ana, "error");
             expect(error).toContain("sesión");
         });
@@ -141,7 +141,7 @@ describe("Maze Duel por sockets (integración)", function(){
             let ana = await socketDe(ANA);
             let luis = await socketDe(LUIS);
 
-            ana.emit("crearPartida", { nivel: "clasico" });
+            ana.emit("crearPartida", { dificultad: "pequeno", semilla: 2024 });
             let creada = await esperar(ana, "partidaCreada");
             expect(creada.partida.estado).toBe("esperando");
 
@@ -150,18 +150,18 @@ describe("Maze Duel por sockets (integración)", function(){
             await unido;
 
             let resultado = esperar(ana, "resultado");
-            ana.emit("programar", { id: creada.id, programa: L.programaBot(L.obtenerNivel("clasico"), L.INICIOS[0]) });
+            ana.emit("programar", { id: creada.id, programa: L.programaBot(creada.partida.nivel, creada.partida.nivel.inicios[0]) });
             luis.emit("programar", { id: creada.id, programa: [{ tipo: "mv", dir: "right" }] });
             let r = await resultado;
             expect(r.ganador).toBe(ANA);
             expect(r.razon).toBe("llegó a la salida");
-            expect(r.pasos[0].posiciones).toEqual([[1, 1], [8, 8]]);
+            expect(r.pasos[0].posiciones).toEqual(creada.partida.nivel.inicios);
         });
 
         it("unirse otra vez a una partida en la que ya estás devuelve la partida (botón Jugar)", async function(){
             let ana = await socketDe(ANA);
             let luis = await socketDe(LUIS);
-            ana.emit("crearPartida", { nivel: "cruce" });
+            ana.emit("crearPartida", { dificultad: "mediano", semilla: 3030 });
             let creada = await esperar(ana, "partidaCreada");
             luis.emit("unirsePartida", { id: creada.id });
             await esperar(luis, "partidaActualizada");
@@ -173,7 +173,7 @@ describe("Maze Duel por sockets (integración)", function(){
         it("tras recargar la página el jugador recupera su partida en curso", async function(){
             let ana = await socketDe(ANA);
             let luis = await socketDe(LUIS);
-            ana.emit("crearPartida", { nivel: "clasico" });
+            ana.emit("crearPartida", { dificultad: "pequeno", semilla: 2024 });
             let creada = await esperar(ana, "partidaCreada");
             luis.emit("unirsePartida", { id: creada.id });
             await esperar(luis, "partidaActualizada");
@@ -187,7 +187,7 @@ describe("Maze Duel por sockets (integración)", function(){
 
         it("no se puede programar en una partida en la que no estás", async function(){
             let ana = await socketDe(ANA);
-            ana.emit("crearPartida", { nivel: "clasico" });
+            ana.emit("crearPartida", { dificultad: "pequeno", semilla: 2024 });
             let creada = await esperar(ana, "partidaCreada");
             ana.emit("programar", { id: creada.id, programa: [{ tipo: "mv", dir: "right" }] });
             let error = await esperar(ana, "error");
@@ -197,7 +197,7 @@ describe("Maze Duel por sockets (integración)", function(){
         it("un programa no válido se rechaza con un mensaje claro", async function(){
             let ana = await socketDe(ANA);
             let luis = await socketDe(LUIS);
-            ana.emit("crearPartida", { nivel: "clasico" });
+            ana.emit("crearPartida", { dificultad: "pequeno", semilla: 2024 });
             let creada = await esperar(ana, "partidaCreada");
             luis.emit("unirsePartida", { id: creada.id });
             await esperar(luis, "partidaActualizada");
@@ -217,13 +217,13 @@ describe("Maze Duel por sockets (integración)", function(){
         it("cuando el otro jugador no envía a tiempo, el servidor cierra la partida", async function(){
             let ana = await socketDe(ANA);
             let luis = await socketDe(LUIS);
-            ana.emit("crearPartida", { nivel: "clasico" });
+            ana.emit("crearPartida", { dificultad: "pequeno", semilla: 2024 });
             let creada = await esperar(ana, "partidaCreada");
             luis.emit("unirsePartida", { id: creada.id });
             await esperar(luis, "partidaActualizada");
 
             let resultado = esperar(ana, "resultado");
-            ana.emit("programar", { id: creada.id, programa: L.programaBot(L.obtenerNivel("clasico"), L.INICIOS[0]) });
+            ana.emit("programar", { id: creada.id, programa: L.programaBot(creada.partida.nivel, creada.partida.nivel.inicios[0]) });
             let r = await resultado;
             expect(r.ganador).toBe(ANA);
             expect(r.comandos[LUIS]).toBe(0);
@@ -239,7 +239,7 @@ describe("Maze Duel por sockets (integración)", function(){
 
         it("si nadie se une, la partida se completa con un bot", async function(){
             let ana = await socketDe(ANA);
-            ana.emit("crearPartida", { nivel: "zigzag" });
+            ana.emit("crearPartida", { dificultad: "pequeno", semilla: 4040 });
             let p = await esperar(ana, "partidaActualizada", function(x){ return x.jugadores.length === 2; });
             expect(p.jugadores[1]).toBe("bot@maze.local");
             expect(p.estado).toBe("programando");
@@ -247,7 +247,7 @@ describe("Maze Duel por sockets (integración)", function(){
 
         it("solo el administrador puede cancelar partidas", async function(){
             let ana = await socketDe(ANA);
-            ana.emit("crearPartida", { nivel: "clasico" });
+            ana.emit("crearPartida", { dificultad: "pequeno", semilla: 2024 });
             let creada = await esperar(ana, "partidaCreada");
             ana.emit("cancelarPartida", { id: creada.id });
             let error = await esperar(ana, "error");
@@ -257,7 +257,7 @@ describe("Maze Duel por sockets (integración)", function(){
         it("el administrador cancela una partida y los jugadores lo saben", async function(){
             let ana = await socketDe(ANA);
             let admin = await socketDe(ADMIN);
-            ana.emit("crearPartida", { nivel: "clasico" });
+            ana.emit("crearPartida", { dificultad: "pequeno", semilla: 2024 });
             let creada = await esperar(ana, "partidaCreada");
             let cancelada = esperar(ana, "partidaCancelada");
             admin.emit("cancelarPartida", { id: creada.id });

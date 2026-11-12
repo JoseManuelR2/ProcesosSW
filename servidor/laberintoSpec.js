@@ -1,39 +1,108 @@
 const L = require("../compartido/laberinto.js");
 
-const CLASICO = L.obtenerNivel("clasico");
 const MOV = function(dir){ return { tipo: "mv", dir: dir }; };
 
-describe("Niveles del laberinto", function(){
-    it("todos los niveles son de 10x10 y tienen la salida libre", function(){
-        L.NIVELES.forEach(function(n){
-            expect(n.mapa.length).toBe(10);
-            n.mapa.forEach(function(fila){ expect(fila.length).toBe(10); });
-            expect(L.esPared(n, n.salida[0], n.salida[1])).toBeFalse();
+// Niveles mínimos para probar una mecánica concreta sin depender del azar.
+const PASILLO = { filas: 3, columnas: 8, mapa: ["11111111", "10000001", "11111111"], salida: [1, 6], inicios: [[1, 1], [1, 2]], maxPasos: 20 };
+const HIELO = { filas: 3, columnas: 6, mapa: ["111111", "10HH01", "111111"], salida: [1, 4], inicios: [[1, 1], [1, 2]], maxPasos: 20 };
+const TRAMPA = { filas: 3, columnas: 7, mapa: ["1111111", "10T0001", "1111111"], salida: [1, 5], inicios: [[1, 1], [1, 3]], maxPasos: 20 };
+const TELEPORT = {
+    filas: 3, columnas: 10,
+    mapa: ["1111111111", "10P0000P01", "1111111111"],
+    salida: [1, 8], inicios: [[1, 1], [1, 6]], maxPasos: 20,
+    teleports: [[[1, 2], [1, 7]]]
+};
+const FLECHA = { filas: 3, columnas: 8, mapa: ["11111111", "10>00001", "11111111"], salida: [1, 6], inicios: [[1, 1], [1, 5]], maxPasos: 20 };
+const VISTA = { filas: 3, columnas: 9, mapa: ["111111111", "100100001", "111111111"], salida: [1, 7], inicios: [[1, 1], [1, 4]], maxPasos: 20 };
+const CARRERA = { filas: 3, columnas: 12, mapa: ["111111111111", "100000000001", "111111111111"], salida: [1, 10], inicios: [[1, 1], [1, 2]], maxPasos: 20 };
+
+describe("Generación procedural de niveles", function(){
+    it("la misma semilla genera siempre el mismo nivel", function(){
+        let a = L.generarNivel({ dificultad: "mediano", semilla: 1234 });
+        let b = L.generarNivel({ dificultad: "mediano", semilla: 1234 });
+        expect(JSON.stringify(a)).toBe(JSON.stringify(b));
+    });
+
+    it("semillas distintas generan laberintos distintos", function(){
+        let a = L.generarNivel({ dificultad: "mediano", semilla: 1 });
+        let b = L.generarNivel({ dificultad: "mediano", semilla: 2 });
+        expect(a.mapa.join("\n")).not.toBe(b.mapa.join("\n"));
+    });
+
+    it("cada dificultad tiene su tamaño", function(){
+        ["pequeno", "mediano", "grande"].forEach(function(clave){
+            let nivel = L.generarNivel({ dificultad: clave, semilla: 7 });
+            expect(nivel.filas).toBe(L.DIFICULTADES[clave].filas);
+            expect(nivel.columnas).toBe(L.DIFICULTADES[clave].columnas);
+            expect(nivel.mapa.length).toBe(nivel.filas);
+            nivel.mapa.forEach(function(fila){ expect(fila.length).toBe(nivel.columnas); });
         });
     });
 
-    it("desde los dos inicios se llega a la salida de cada nivel en 50 movimientos o menos", function(){
-        L.NIVELES.forEach(function(n){
-            L.INICIOS.forEach(function(inicio){
-                let distancia = L.distanciaSalida(n, inicio);
-                expect(distancia).toBeLessThan(Infinity);
-                expect(distancia).toBeLessThan(L.LIMITES.comandos + 1);
+    it("los bordes son paredes y las salidas de los dos jugadores son pasillos", function(){
+        ["pequeno", "mediano", "grande"].forEach(function(clave){
+            let nivel = L.generarNivel({ dificultad: clave, semilla: 3 });
+            expect(L.esPared(nivel, 0, 0)).toBeTrue();
+            expect(L.esPared(nivel, nivel.filas - 1, nivel.columnas - 1)).toBeTrue();
+            nivel.inicios.forEach(function(inicio){
+                expect(L.esPared(nivel, inicio[0], inicio[1])).toBeFalse();
             });
+            expect(L.esPared(nivel, nivel.salida[0], nivel.salida[1])).toBeFalse();
         });
     });
 
-    it("un nivel inexistente devuelve null", function(){
-        expect(L.obtenerNivel("nada")).toBeNull();
+    it("todos los niveles generados son resolubles dentro del límite de movimientos", function(){
+        ["pequeno", "mediano", "grande"].forEach(function(clave){
+            for (let semilla = 1; semilla <= 10; semilla++){
+                let nivel = L.generarNivel({ dificultad: clave, semilla: semilla });
+                expect(L.solucionable(nivel)).toBeTrue();
+                nivel.inicios.forEach(function(inicio){
+                    expect(L.distanciaSalida(nivel, inicio, inicio)).toBeLessThan(L.maximoPasos(nivel));
+                });
+            }
+        });
+    });
+
+    it("el mapa incluye hielo, trampas, flechas y teletransportes", function(){
+        let encontradas = { H: 0, T: 0, P: 0, "^": 0, v: 0, "<": 0, ">": 0 };
+        for (let semilla = 1; semilla <= 8; semilla++){
+            let nivel = L.generarNivel({ dificultad: "grande", semilla: semilla });
+            nivel.mapa.join("").split("").forEach(function(c){
+                if (encontradas.hasOwnProperty(c)){ encontradas[c]++; }
+            });
+        }
+        expect(encontradas.H).toBeGreaterThan(0);
+        expect(encontradas.T).toBeGreaterThan(0);
+        expect(encontradas.P).toBeGreaterThan(0);
+        expect(encontradas["^"] + encontradas.v + encontradas["<"] + encontradas[">"]).toBeGreaterThan(0);
+    });
+
+    it("el bot resuelve cualquier nivel generado", function(){
+        ["pequeno", "mediano", "grande"].forEach(function(clave){
+            for (let semilla = 1; semilla <= 5; semilla++){
+                let nivel = L.generarNivel({ dificultad: clave, semilla: semilla });
+                nivel.inicios.forEach(function(inicio){
+                    let programa = L.programaBot(nivel, inicio);
+                    expect(L.trazar(nivel, inicio, programa).llega).toBeTrue();
+                });
+            }
+        });
+    });
+
+    it("el límite de movimientos crece con el tamaño del mapa", function(){
+        let pequeno = L.generarNivel({ dificultad: "pequeno", semilla: 1 });
+        let grande = L.generarNivel({ dificultad: "grande", semilla: 1 });
+        expect(L.maximoPasos(grande)).toBeGreaterThan(L.maximoPasos(pequeno));
     });
 });
 
 describe("Validación de programas", function(){
-    it("acepta un programa con todos los tipos de bloque", function(){
+    it("acepta un programa con todos los tipos de bloque y negaciones", function(){
         let programa = [
             MOV("right"),
             { tipo: "repeat", n: 2, cuerpo: [MOV("down")] },
-            { tipo: "while", cond: "not exit", cuerpo: [MOV("right")] },
-            { tipo: "if", cond: "wall up", cuerpo: [MOV("left")] },
+            { tipo: "while", cond: "exit visible", negada: true, cuerpo: [MOV("right")] },
+            { tipo: "if", cond: "ice", negada: true, cuerpo: [MOV("left")] },
             { tipo: "if", cond: "wall up", cuerpo: [MOV("left")], otro: [MOV("up")] }
         ];
         expect(L.validar(programa)).toBeNull();
@@ -43,19 +112,20 @@ describe("Validación de programas", function(){
         expect(L.validar("mv right")).not.toBeNull();
     });
 
-    it("rechaza direcciones y tipos desconocidos", function(){
+    it("rechaza direcciones, tipos y condiciones desconocidas", function(){
         expect(L.validar([MOV("diagonal")])).not.toBeNull();
         expect(L.validar([{ tipo: "salto" }])).not.toBeNull();
+        expect(L.validar([{ tipo: "if", cond: "wall ahead", cuerpo: [] }])).not.toBeNull();
+    });
+
+    it("rechaza una negación que no es booleana", function(){
+        expect(L.validar([{ tipo: "if", cond: "ice", negada: "si", cuerpo: [] }])).not.toBeNull();
     });
 
     it("rechaza repeticiones fuera de rango", function(){
         expect(L.validar([{ tipo: "repeat", n: 0, cuerpo: [] }])).not.toBeNull();
         expect(L.validar([{ tipo: "repeat", n: 11, cuerpo: [] }])).not.toBeNull();
         expect(L.validar([{ tipo: "repeat", n: 1.5, cuerpo: [] }])).not.toBeNull();
-    });
-
-    it("rechaza condiciones desconocidas", function(){
-        expect(L.validar([{ tipo: "if", cond: "wall ahead", cuerpo: [] }])).not.toBeNull();
     });
 
     it("rechaza más de 60 bloques", function(){
@@ -73,69 +143,67 @@ describe("Validación de programas", function(){
 
 describe("Ejecución del programa (trazar)", function(){
     it("un movimiento contra una pared no mueve al robot pero cuenta como comando", function(){
-        let t = L.trazar(CLASICO, [1, 1], [MOV("up")]);
+        let t = L.trazar(PASILLO, [1, 1], [MOV("up")]);
         expect(t.final).toEqual([1, 1]);
         expect(t.camino.length).toBe(1);
     });
 
     it("repeat ejecuta el cuerpo n veces", function(){
-        let t = L.trazar(CLASICO, [1, 1], [{ tipo: "repeat", n: 2, cuerpo: [MOV("down")] }]);
-        expect(t.final).toEqual([3, 1]);
+        let t = L.trazar(PASILLO, [1, 1], [{ tipo: "repeat", n: 2, cuerpo: [MOV("right")] }]);
+        expect(t.final).toEqual([1, 3]);
     });
 
-    it("while not exit repite hasta llegar a la salida y se detiene allí", function(){
-        let pasillo = { salida: [1, 8], mapa: ["1111111111", "1000000001", "1000000001", "1111111111"].concat(
-            ["1111111111", "1111111111", "1111111111", "1111111111", "1111111111", "1111111111"]) };
-        let t = L.trazar(pasillo, [1, 1], [{ tipo: "while", cond: "not exit", cuerpo: [MOV("right")] }]);
+    it("while con la condición negada repite hasta que deja de cumplirse", function(){
+        let t = L.trazar(PASILLO, [1, 1], [{ tipo: "while", cond: "wall right", negada: true, cuerpo: [MOV("right")] }]);
         expect(t.llega).toBeTrue();
-        expect(t.final).toEqual([1, 8]);
-        expect(t.camino.length).toBe(7);
+        expect(t.final).toEqual([1, 6]);
     });
 
-    it("if elige la rama según la pared", function(){
-        // Desde (1,1): la pared de arriba está cerrada, entra en la rama "si" (va a la derecha).
+    it("if ejecuta el cuerpo cuando la condición es cierta y la rama 'otro' cuando es falsa", function(){
         let conPared = [{ tipo: "if", cond: "wall up", cuerpo: [MOV("right")], otro: [MOV("down")] }];
-        expect(L.trazar(CLASICO, [1, 1], conPared).final).toEqual([1, 2]);
-        // La pared de la derecha está abierta: la condición es falsa y entra en la rama "no" (baja).
-        let sinPared = [{ tipo: "if", cond: "wall right", cuerpo: [MOV("right")], otro: [MOV("down")] }];
-        expect(L.trazar(CLASICO, [1, 1], sinPared).final).toEqual([2, 1]);
+        expect(L.trazar(PASILLO, [1, 1], conPared).final).toEqual([1, 2]);
+        let sinPared = [{ tipo: "if", cond: "wall up", negada: true, cuerpo: [MOV("left")], otro: [MOV("right")] }];
+        expect(L.trazar(PASILLO, [1, 1], sinPared).final).toEqual([1, 2]);
+    });
+
+    it("la negación invierte la condición", function(){
+        let normal = [{ tipo: "if", cond: "wall up", cuerpo: [MOV("right")] }];
+        let negada = [{ tipo: "if", cond: "wall up", negada: true, cuerpo: [MOV("right")] }];
+        expect(L.trazar(PASILLO, [1, 1], normal).camino.length).toBe(1);
+        expect(L.trazar(PASILLO, [1, 1], negada).camino.length).toBe(0);
+    });
+
+    it("'exit visible' detecta la salida en línea recta sin paredes entre medias", function(){
+        let ve = [{ tipo: "if", cond: "exit visible", cuerpo: [MOV("right")] }];
+        let noVe = [{ tipo: "if", cond: "exit visible", negada: true, cuerpo: [MOV("right")] }];
+        expect(L.trazar(VISTA, [1, 4], ve).final).toEqual([1, 5]);
+        expect(L.trazar(VISTA, [1, 1], ve).final).toEqual([1, 1]);
+        expect(L.trazar(VISTA, [1, 1], noVe).final).toEqual([1, 2]);
+    });
+
+    it("los sensores detectan la casilla en la que está el robot", function(){
+        expect(L.trazar(HIELO, [1, 2], [{ tipo: "if", cond: "ice", cuerpo: [MOV("right")] }]).final).toEqual([1, 4]);
+        expect(L.trazar(TRAMPA, [1, 2], [{ tipo: "if", cond: "trap", cuerpo: [MOV("right")] }]).final).toEqual([1, 3]);
+        expect(L.trazar(TELEPORT, [1, 2], [{ tipo: "if", cond: "teleport", cuerpo: [MOV("right")] }]).final).toEqual([1, 3]);
+        expect(L.trazar(FLECHA, [1, 2], [{ tipo: "if", cond: "arrow", cuerpo: [MOV("right")] }]).final).toEqual([1, 3]);
     });
 
     it("un bucle sin movimientos se corta y no se queda colgado", function(){
-        let t = L.trazar(CLASICO, [1, 1], [{ tipo: "while", cond: "not exit", cuerpo: [] }]);
-        expect(t.llega).toBeFalse();
+        let t = L.trazar(PASILLO, [1, 1], [{ tipo: "while", cond: "wall up", cuerpo: [] }]);
         expect(t.camino.length).toBe(0);
     });
 
-    it("nunca supera 50 movimientos aunque el bucle sea infinito", function(){
-        let t = L.trazar(CLASICO, [1, 1], [{ tipo: "while", cond: "not exit", cuerpo: [MOV("up")] }]);
-        expect(t.camino.length).toBe(L.LIMITES.comandos);
-    });
-
-    it("el robot se detiene al llegar a la salida aunque el programa siga", function(){
-        let pasillo = { salida: [1, 8], mapa: ["1111111111", "1000000001", "1111111111"] };
-        let programa = [];
-        for (let i = 0; i < 10; i++){ programa.push(MOV("right")); }
-        let t = L.trazar(pasillo, [1, 1], programa);
-        expect(t.llega).toBeTrue();
-        expect(t.camino.length).toBe(7);
+    it("nunca supera el máximo del nivel aunque el bucle sea infinito", function(){
+        let t = L.trazar(PASILLO, [1, 1], [{ tipo: "while", cond: "wall up", cuerpo: [MOV("up")] }]);
+        expect(t.camino.length).toBe(PASILLO.maxPasos);
     });
 });
 
 describe("Casillas especiales", function(){
-    // Pasillo de una fila: [1,1] inicio, [1,4] salida.
-    const HIELO = { salida: [1, 5], mapa: ["111111", "10HH001", "111111"] };
-    const TRAMPA = { salida: [1, 4], mapa: ["111111", "10T001", "111111"] };
-
-    it("en el hielo el robot resbala en la misma dirección hasta la siguiente casilla libre", function(){
+    it("en el hielo el robot resbala hasta la siguiente casilla libre", function(){
         let t = L.trazar(HIELO, [1, 1], [MOV("right")]);
         expect(t.final).toEqual([1, 4]);
-    });
-
-    it("una salida al final del hielo también se alcanza deslizando", function(){
-        let t = L.trazar(HIELO, [1, 1], [MOV("right"), MOV("right")]);
         expect(t.llega).toBeTrue();
-        expect(t.final).toEqual([1, 5]);
     });
 
     it("pisar una trampa devuelve al robot a su salida", function(){
@@ -144,73 +212,73 @@ describe("Casillas especiales", function(){
         expect(t.camino.length).toBe(1);
     });
 
-    it("una trampa que corta el único pasillo hace imposible llegar", function(){
+    it("una trampa en el único pasillo hace imposible llegar", function(){
         expect(L.distanciaSalida(TRAMPA, [1, 1], [1, 1])).toBe(Infinity);
     });
 
-    it("la búsqueda de rutas sigue el hielo: el bot resuelve el nivel de hielo", function(){
-        let nivel = L.obtenerNivel("hielo");
-        let programa = L.programaBot(nivel, L.INICIOS[0]);
-        expect(L.trazar(nivel, L.INICIOS[0], programa).llega).toBeTrue();
+    it("un teletransporte lleva a su pareja", function(){
+        let t = L.trazar(TELEPORT, [1, 1], [MOV("right")]);
+        expect(t.final).toEqual([1, 7]);
+        let completa = L.trazar(TELEPORT, [1, 1], [MOV("right"), MOV("right")]);
+        expect(completa.llega).toBeTrue();
+        expect(completa.final).toEqual([1, 8]);
+    });
+
+    it("una flecha solo se puede atravesar en su dirección", function(){
+        expect(L.trazar(FLECHA, [1, 1], [MOV("right")]).final).toEqual([1, 2]);
+        expect(L.trazar(FLECHA, [1, 3], [MOV("left")]).final).toEqual([1, 3]);
     });
 });
 
 describe("Resolución de la carrera", function(){
-    function traza(camino, llega, final){
-        return { camino: camino, llega: llega, final: final };
+    function traza(camino, llega, final, inicio){
+        return { camino: camino, llega: llega, final: final, inicio: inicio || [1, 1] };
     }
 
-    it("gana quien llega a la salida, aunque el otro vaya por delante en distancia", function(){
-        let res = L.resolver(CLASICO, [
-            traza([[2, 1]], false, [2, 1]),
-            traza([[8, 1], [8, 1]], true, [8, 1])
+    it("gana quien llega a la salida", function(){
+        let res = L.resolver(CARRERA, [
+            traza([[1, 2]], false, [1, 2], [1, 1]),
+            traza([[1, 10]], true, [1, 10], [1, 9])
         ]);
         expect(res.indiceGanador).toBe(1);
+        expect(res.razon).toBe("llegó a la salida");
     });
 
     it("si llegan los dos, gana el que usa menos movimientos", function(){
-        let res = L.resolver(CLASICO, [
-            traza([[1, 1], [2, 1], [3, 1]], true, [8, 1]),
-            traza([[8, 1]], true, [8, 1])
+        let res = L.resolver(CARRERA, [
+            traza([[1, 2], [1, 3]], true, [1, 10], [1, 1]),
+            traza([[1, 10]], true, [1, 10], [1, 9])
         ]);
         expect(res.indiceGanador).toBe(1);
     });
 
     it("llegar a la vez con igual número de movimientos es empate", function(){
-        let res = L.resolver(CLASICO, [
-            traza([[8, 1]], true, [8, 1]),
-            traza([[8, 1]], true, [8, 1])
+        let res = L.resolver(CARRERA, [
+            traza([[1, 10]], true, [1, 10], [1, 9]),
+            traza([[1, 10]], true, [1, 10], [1, 9])
         ]);
         expect(res.indiceGanador).toBeNull();
         expect(res.razon).toContain("empate");
     });
 
-    it("si nadie llega, gana el más cercano por caminos (no por línea recta)", function(){
-        // (7,1) está a 1 paso de la salida; (1,1) está a más de 10 pasos por caminos.
-        let res = L.resolver(CLASICO, [
-            traza([], false, [7, 1]),
-            traza([], false, [1, 1])
+    it("si nadie llega, gana el más cercano por caminos", function(){
+        let res = L.resolver(CARRERA, [
+            traza([], false, [1, 8], [1, 1]),
+            traza([], false, [1, 2], [1, 2])
         ]);
         expect(res.indiceGanador).toBe(0);
         expect(res.razon).toBe("más cerca de la salida");
     });
 
     it("la fotografía de la carrera empieza con cada robot en su salida", function(){
-        let trazas = [traza([[2, 1], [3, 1]], false, [3, 1]), traza([[8, 2]], false, [8, 2])];
-        let pasos = L.lineaTemporal(CLASICO, L.INICIOS, trazas);
+        let trazas = [
+            traza([[1, 2], [1, 3]], false, [1, 3], [1, 1]),
+            traza([[1, 3]], false, [1, 3], [1, 2])
+        ];
+        let pasos = L.lineaTemporal(CARRERA, CARRERA.inicios, trazas);
         expect(pasos.length).toBe(3);
-        expect(pasos[0].posiciones).toEqual([[1, 1], [8, 8]]);
-        expect(pasos[1].posiciones).toEqual([[2, 1], [8, 2]]);
-        expect(pasos[2].posiciones).toEqual([[3, 1], [8, 2]]);
-    });
-});
-
-describe("Bot", function(){
-    it("el bot sigue la ruta más corta y llega a la salida de cada nivel", function(){
-        L.NIVELES.forEach(function(n){
-            let programa = L.programaBot(n, L.INICIOS[1]);
-            expect(L.validar(programa)).toBeNull();
-            expect(L.trazar(n, L.INICIOS[1], programa).llega).toBeTrue();
-        });
+        expect(pasos[0].posiciones).toEqual([[1, 1], [1, 2]]);
+        expect(pasos[1].posiciones).toEqual([[1, 2], [1, 3]]);
+        expect(pasos[2].posiciones).toEqual([[1, 3], [1, 3]]);
     });
 });

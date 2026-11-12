@@ -207,7 +207,7 @@ sesión HTTP, nunca por lo que envía el cliente. Cada evento revalida la cuenta
 
 | Cliente → servidor | Datos | Respuesta |
 | --- | --- | --- |
-| `crearPartida` | `{ nivel }` (`clasico`, `cruce`, `zigzag`) | `partidaCreada` `{ id, partida }` |
+| `crearPartida` | `{ dificultad, semilla? }` (`pequeno`, `mediano`, `grande`) | `partidaCreada` `{ id, partida }` |
 | `unirsePartida` | `{ id }` | `partidaActualizada` (si ya estabas dentro, devuelve la partida) |
 | `programar` | `{ id, programa }` | `programado` `{ comandos }` o `error` |
 | `cancelarPartida` | `{ id }` (solo administrador) | `partidaCancelada` |
@@ -229,23 +229,35 @@ esperan rival, a los 10.
 - Gana quien llega antes a la salida (menos movimientos). Si llegan a la vez con
   el mismo número de movimientos, empate.
 - Si nadie llega, gana quien está más cerca **por caminos** (no en línea recta).
-- Máximo 50 movimientos por programa, 60 bloques y 4 niveles de anidamiento.
-- Casillas: `❄` hielo (el robot resbala en la misma dirección hasta la siguiente
-  casilla libre o la salida) y `✖` trampa (el robot vuelve a su salida).
-- Niveles: Clásico, Cruce, Zigzag, Hielo y Trampas.
+- Cada partida usa un laberinto generado proceduralmente. La semilla es opcional:
+  con la misma semilla y dificultad se obtiene siempre el mismo nivel.
+- Tamaños: Small (11×11), Medium (15×15) y Large (19×19). Los mapas grandes
+  tienen más casillas especiales y un límite mayor de movimientos (60, 112 y 150).
+- Máximo 60 bloques y 4 niveles de anidamiento.
+- Casillas especiales:
+  - `❄` hielo: el robot resbala en la misma dirección hasta la siguiente casilla
+    libre o la salida.
+  - `✖` trampa: el robot vuelve a su casilla de inicio.
+  - `◎` teletransporte: el robot pasa a la casilla emparejada.
+  - `↑ ↓ ← →` flechas: puertas de un solo sentido; solo se pueden atravesar
+    moviéndose en la dirección de la flecha.
 
 ### Programa (árbol JSON)
 
 ```json
 [
   { "tipo": "repeat", "n": 3, "cuerpo": [ { "tipo": "mv", "dir": "down" } ] },
-  { "tipo": "while", "cond": "not exit", "cuerpo": [ { "tipo": "mv", "dir": "right" } ] },
+  { "tipo": "while", "cond": "exit visible", "negada": true, "cuerpo": [ { "tipo": "mv", "dir": "right" } ] },
   { "tipo": "if", "cond": "wall up", "cuerpo": [ { "tipo": "mv", "dir": "left" } ], "otro": [] }
 ]
 ```
 
 Condiciones: `wall up`, `wall down`, `wall left`, `wall right` (hay pared en esa
-dirección desde la posición actual) y `not exit` (todavía no has llegado a la salida).
+dirección desde la posición actual), `exit visible` (la salida está en línea recta
+sin paredes), `ice`, `trap`, `teleport` y `arrow` (la casilla actual es de ese tipo).
+Cualquier condición se puede negar con `"negada": true`; en el editor se hace con
+el botón `!` que aparece a la izquierda del desplegable.
+
 El servidor y el navegador usan el mismo intérprete (`compartido/laberinto.js`),
 así que lo que ves en "Test" es lo que se ejecuta.
 

@@ -24,7 +24,7 @@ function Partida(id, creador, nivel){
 }
 
 Partida.prototype.inicioDe = function(email){
-    return L.INICIOS[this.jugadores.indexOf(email)];
+    return this.nivel.inicios[this.jugadores.indexOf(email)];
 };
 
 Partida.prototype.agregarJugador = function(email){
@@ -123,7 +123,7 @@ Partida.prototype.ejecutar = function(){
     this.finalizada = Date.now();
     this.resultado = {
         id: this.id,
-        nivel: this.nivel.id,
+        nivel: this.nivel,
         jugadores: this.jugadores.slice(),
         ganador: ganador,
         razon: decision.razon,
@@ -146,7 +146,7 @@ Partida.prototype.resumen = function(){
         creador: this.creador,
         jugadores: this.jugadores.slice(),
         estado: this.estado,
-        nivel: this.nivel.id,
+        nivel: this.nivel,
         resultado: this.resultado
     };
 };
@@ -155,11 +155,17 @@ function GestorPartidas(){
     this.partidas = {};
 }
 
-GestorPartidas.prototype.crear = function(email, idNivel){
-    let nivel = L.obtenerNivel(idNivel || "clasico");
-    if (!nivel){
-        return { error: "Nivel no válido" };
+// Crea una partida con un nivel generado. opciones: { dificultad, semilla }.
+GestorPartidas.prototype.crear = function(email, opciones){
+    opciones = opciones || {};
+    let dificultad = opciones.dificultad || "mediano";
+    if (!L.DIFICULTADES[dificultad]){
+        return { error: "Dificultad no válida" };
     }
+    // Sin semilla explícita se usa una aleatoria del servidor (no depende del reloj,
+    // así dos partidas creadas a la vez no comparten laberinto).
+    let semilla = Number.isInteger(opciones.semilla) ? opciones.semilla : crypto.randomBytes(4).readUInt32BE(0);
+    let nivel = L.generarNivel({ dificultad: dificultad, semilla: semilla });
     let id;
     do {
         id = "P" + crypto.randomBytes(3).toString("hex");
@@ -194,7 +200,14 @@ GestorPartidas.prototype.listar = function(){
             creador: p.creador,
             jugadores: p.jugadores.slice(),
             estado: p.estado,
-            nivel: p.nivel.id,
+            nivel: {
+                id: p.nivel.id,
+                nombre: p.nivel.nombre,
+                semilla: p.nivel.semilla,
+                dificultad: p.nivel.dificultad,
+                filas: p.nivel.filas,
+                columnas: p.nivel.columnas
+            },
             resultado: p.resultado ? p.resultado.ganador : null
         };
     });

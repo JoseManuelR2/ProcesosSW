@@ -84,7 +84,8 @@ async function main(){
     app.use(session(opcionesSesion));
 
     // Frontend: se sirve únicamente la carpeta cliente (nunca el resto del proyecto).
-    app.use(express.static(path.join(__dirname, "cliente")));
+    // Sin caché para que siempre se sirva la versión más reciente.
+    app.use(express.static(path.join(__dirname, "cliente"), { maxAge: 0, etag: false }));
 
     // API REST (capa de presentación del backend) y autorización con Google.
     api.montarApi(app, modelo);

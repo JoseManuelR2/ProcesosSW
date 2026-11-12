@@ -38,7 +38,7 @@ function ControlWeb(){
         let self = this;
         $("#navUsuarios").on("click", function(e){ e.preventDefault(); self.mostrarListarUsuarios(); });
         $("#navActivo").on("click", function(e){ e.preventDefault(); self.mostrarUsuarioActivo(); });
-        $("#navJuego").on("click", function(e){ e.preventDefault(); if (window.juegoWeb){ window.juegoWeb.mostrarLobby(); window.juegoWeb.socket.emit("solicitarLista"); } });
+        $(document).off("click.navJuego").on("click.navJuego", "#navJuego", function(e){ e.preventDefault(); if (window.juegoWeb){ window.juegoWeb.mostrarLobby(); window.juegoWeb.socket.emit("solicitarLista"); } });
         $("#navEliminar").on("click", function(e){ e.preventDefault(); self.mostrarEliminarUsuario(); });
         $("#navSalir").on("click", function(e){ e.preventDefault(); self.cerrarSesion(); });
     };

@@ -560,10 +560,10 @@ JuegoWeb.prototype.mostrarResultado = function(resultado){
         resultado.posicionesFinales[self.partidaActual.jugadores[0]],
         resultado.posicionesFinales[self.partidaActual.jugadores[1]]
     );
-    cadena += '<button id="btnVolverLobby" class="btn btn-primary mt-2">Back to lobby</button>';
+    cadena += '<button id="btnVolverLobby" class="btn btn-primary mt-2" onclick="if(window.juegoWeb){window.juegoWeb.mostrarLobby();window.juegoWeb.socket.emit(\'solicitarLista\');}">Back to lobby</button>';
     cadena += '</div>';
     $("#contenido").html(cadena);
-    $("#btnVolverLobby").on("click", function(){ self.mostrarLobby(); self.socket.emit("solicitarLista"); });
+    $(document).off("click.volver").on("click.volver", "#btnVolverLobby", function(){ self.mostrarLobby(); self.socket.emit("solicitarLista"); });
 };
 
 JuegoWeb.prototype.actualizarListaPartidas = function(lista){

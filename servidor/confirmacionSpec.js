@@ -121,6 +121,15 @@ describe("Inicio de sesión con Google (capa lógica)", function(){
         expect(guardado.estado).toBe("confirmado");
     });
 
+    it("al confirmar con Google se borra la contraseña local que dejó un registro pendiente", async function(){
+        await modelo.registrarUsuario("ana@test.com", "contrasena1");
+        await modelo.iniciarConOAuth("ana@test.com", "google");
+        let guardado = await modelo.cad.obtenerUsuario("ana@test.com");
+        expect(guardado.password).toBeNull();
+        let res = await modelo.autenticar("ana@test.com", "contrasena1");
+        expect(res.codigo).toBe(401);
+    });
+
     it("una cuenta eliminada se reactiva al entrar de nuevo con OAuth", async function(){
         await modelo.iniciarConOAuth("luis@gmail.com", "google");
         await modelo.eliminarUsuario({ email: "luis@gmail.com", rol: "usuario" }, "luis@gmail.com");

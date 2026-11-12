@@ -71,11 +71,13 @@ function ControlWeb(){
             function(usuario){
                 self.usuario = usuario;
                 self.mostrarInicio();
+                self.notificarSesion(usuario);
                 if (aviso){ self.mostrarMensaje(aviso.texto, aviso.tipo); }
             },
             function(){
                 self.usuario = null;
                 self.mostrarLogin();
+                self.notificarSesion(null);
                 if (aviso){ self.mostrarMensaje(aviso.texto, aviso.tipo); }
             }
         );
@@ -111,7 +113,7 @@ function ControlWeb(){
                 self.usuario = usuario;
                 self.mostrarInicio();
                 self.mostrarMensaje("Sesión iniciada como " + usuario.email, "success");
-                if (window.juegoWeb){ window.juegoWeb.iniciar(usuario); }
+                self.notificarSesion(usuario);
             });
         });
         $("#btnIrRegistro").on("click", function(){ self.mostrarRegistro(); });
@@ -209,6 +211,7 @@ function ControlWeb(){
                 if (self.usuario && self.usuario.email === email){
                     self.usuario = null;
                     self.mostrarLogin();
+                    self.notificarSesion(null);
                 }
                 else{
                     self.mostrarInicio();
@@ -223,7 +226,13 @@ function ControlWeb(){
         rest.logout(function(){
             self.usuario = null;
             self.mostrarLogin();
+            self.notificarSesion(null);
             self.mostrarMensaje("Sesión cerrada", "info");
         });
+    };
+
+    // Avisa al juego de quién está conectado (o de que nadie lo está).
+    this.notificarSesion = function(usuario){
+        if (window.juegoWeb){ window.juegoWeb.iniciar(usuario); }
     };
 }

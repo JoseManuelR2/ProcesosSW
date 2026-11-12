@@ -16,13 +16,24 @@ const ORIGEN_LOCAL = "local";
 const HORAS_CADUCIDAD_CONFIRMACION = 24;
 const EXPIRA_CONFIRMACION_MS = HORAS_CADUCIDAD_CONFIRMACION * 60 * 60 * 1000;
 
-const RE_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const RE_EMAIL = /^[^\s@<>"'()\[\],;:\\]+@[^\s@<>"'()\[\],;:\\]+\.[^\s@<>"'()\[\],;:\\]+$/;
 const LONGITUD_MINIMA_PASSWORD = 8;
+const MAX_FALLOS_GUARDADOS = 20;
 
 // --- Variante 4: bloqueo por intentos fallidos de inicio de sesión ---
 const FALLOS_NECESARIOS = 5;
 const MINUTOS_BLOQUEO = 15;
 const INTERVALO_MAXIMO_MS = MINUTOS_BLOQUEO * 60 * 1000;
+
+// Hash de una contraseña aleatoria: se compara cuando el usuario no existe para
+// que el tiempo de respuesta no revele si la cuenta existe.
+let hashFicticioPromesa = null;
+function hashFicticio(){
+    if (!hashFicticioPromesa){
+        hashFicticioPromesa = seguridad.hashear(crypto.randomBytes(16).toString("hex"));
+    }
+    return hashFicticioPromesa;
+}
 
 // Convierte un instante ISO 8601 en milisegundos. Devuelve null si no es válida:
 // así la capa lógica puede rechazar el dato sin depender de la CAD ni del reloj.
@@ -90,11 +101,23 @@ function Modelo(cad, log, correo){
     // La capa lógica solo conoce la interfaz de envío (enviarConfirmacion).
     this.correo = correo || { enviarConfirmacion: async function(){} };
 
-    // Variante 4: se expone sobre el modelo para que la capa API la llame,
-    // pero no toca this.cad ni this.log (no hay estado que persistir).
+    // Variante 4: se expone sobre el modelo para que la capa API la llame
+    // (ruta de prueba), y el propio login la aplica a las cuentas reales.
     this.evaluarBloqueo = evaluarBloqueo;
 
+    // Datos vigentes de un usuario para revalidar una sesión: null si la cuenta
+    // ya no existe, está eliminada o no está confirmada.
+    this.usuarioVigente = async function(email){
+        let usuario = await this.cad.obtenerUsuario(email);
+        if (!usuario || usuario.estado !== ESTADO_CONFIRMADO){
+            return null;
+        }
+        return { email: usuario.email, rol: usuario.rol };
+    };
+
     // Registro local: crea la cuenta en estado "pendiente" hasta que se confirme.
+    // Respuesta neutra: si el email ya tiene cuenta confirmada no se revela y no se
+    // envía correo. Una cuenta pendiente se reemplaza (así se recupera un enlace caducado).
     this.registrarUsuario = async function(email, password){
         if (!email || !password){
             return { error: "El email y la contraseña son obligatorios", codigo: 400 };
@@ -106,33 +129,41 @@ function Modelo(cad, log, correo){
             return { error: "La contraseña debe tener al menos " + LONGITUD_MINIMA_PASSWORD + " caracteres", codigo: 400 };
         }
         let existente = await this.cad.obtenerUsuario(email);
-        if (existente && existente.estado !== ESTADO_ELIMINADO){
-            return { error: "Ya existe una cuenta con ese email", codigo: 409 };
+        if (existente && existente.estado === ESTADO_CONFIRMADO){
+            await this.log.registrar("registro_duplicado", { email: email });
+            return { email: email, estado: ESTADO_PENDIENTE };
         }
-        // Si la cuenta estaba eliminada, la borramos físicamente para poder re-registrarla.
         if (existente && existente.estado === ESTADO_ELIMINADO){
             await this.cad.eliminarUsuario(email);
+            existente = null;
         }
         let hash = await seguridad.hashear(password);
         let token = crypto.randomBytes(32).toString("hex");
-        await this.cad.agregarUsuario({
-            email: email,
+        let datos = {
             password: hash,
             rol: ROL_USUARIO,
             estado: ESTADO_PENDIENTE,
             origen: ORIGEN_LOCAL,
             tokenConfirmacion: token,
-            expiraConfirmacion: Date.now() + EXPIRA_CONFIRMACION_MS
-        });
+            expiraConfirmacion: Date.now() + EXPIRA_CONFIRMACION_MS,
+            fallos: []
+        };
+        if (existente){
+            await this.cad.actualizarUsuario(email, datos);
+        } else {
+            await this.cad.agregarUsuario(Object.assign({ email: email }, datos));
+        }
         try{
             await this.correo.enviarConfirmacion(email, token);
         }
         catch(e){
-            await this.cad.eliminarUsuario(email);
+            if (!existente){
+                await this.cad.eliminarUsuario(email);
+            }
             await this.log.registrar("correo_fallido", { email: email, error: e.message });
             return { error: "No se pudo enviar el correo de confirmación. Inténtalo de nuevo más tarde.", codigo: 503 };
         }
-        await this.log.registrar("registro", { email: email });
+        await this.log.registrar("registro", { email: email, reenvio: !!existente });
         return { email: email, estado: ESTADO_PENDIENTE };
     };
 
@@ -150,7 +181,8 @@ function Modelo(cad, log, correo){
             email: email,
             password: hash,
             rol: ROL_ADMIN,
-            estado: ESTADO_CONFIRMADO
+            estado: ESTADO_CONFIRMADO,
+            fallos: []
         });
         await this.log.registrar("alta_admin", { email: email });
         return { email: email, creado: true };
@@ -178,21 +210,35 @@ function Modelo(cad, log, correo){
         return { email: usuario.email, estado: ESTADO_CONFIRMADO };
     };
 
-    // Inicio de sesión local (email + contraseña).
+    // Inicio de sesión local (email + contraseña) con bloqueo por intentos fallidos.
     this.autenticar = async function(email, password){
         let usuario = await this.cad.obtenerUsuario(email);
-        if (!usuario || usuario.estado === ESTADO_ELIMINADO || !usuario.password){
-            await this.log.registrar("login_fallido", { email: email, motivo: "no_existe" });
+        let existe = !!usuario && usuario.estado !== ESTADO_ELIMINADO && !!usuario.password;
+        let fallos = existe ? (usuario.fallos || []) : [];
+        let ahora = new Date().toISOString();
+
+        if (existe){
+            let bloqueo = evaluarBloqueo(fallos, ahora);
+            if (bloqueo.bloqueado){
+                await this.log.registrar("login_bloqueado", { email: email, hasta: bloqueo.hasta });
+                return { error: "Cuenta bloqueada por demasiados intentos. Inténtalo más tarde.", codigo: 429 };
+            }
+        }
+
+        let correcta = await seguridad.verificar(String(password || ""), existe ? usuario.password : await hashFicticio());
+        if (!existe || !correcta){
+            if (existe){
+                await this.cad.actualizarUsuario(email, { fallos: fallos.concat(ahora).slice(-MAX_FALLOS_GUARDADOS) });
+            }
+            await this.log.registrar("login_fallido", { email: email, motivo: existe ? "password" : "no_existe" });
             return { error: "Credenciales incorrectas", codigo: 401 };
         }
         if (usuario.estado !== ESTADO_CONFIRMADO){
             await this.log.registrar("login_fallido", { email: email, motivo: "pendiente" });
             return { error: "La cuenta todavía no está confirmada", codigo: 403 };
         }
-        let correcta = await seguridad.verificar(password, usuario.password);
-        if (!correcta){
-            await this.log.registrar("login_fallido", { email: email, motivo: "password" });
-            return { error: "Credenciales incorrectas", codigo: 401 };
+        if (fallos.length > 0){
+            await this.cad.actualizarUsuario(email, { fallos: [] });
         }
         await this.log.registrar("login", { email: email });
         return { email: usuario.email, rol: usuario.rol };
@@ -211,6 +257,7 @@ function Modelo(cad, log, correo){
                 estado: ESTADO_CONFIRMADO,
                 origen: proveedor,
                 password: null,
+                fallos: [],
                 tokenConfirmacion: null,
                 expiraConfirmacion: null
             });
@@ -224,12 +271,20 @@ function Modelo(cad, log, correo){
                 rol: ROL_USUARIO,
                 estado: ESTADO_CONFIRMADO,
                 origen: proveedor,
+                fallos: [],
                 tokenConfirmacion: null,
                 expiraConfirmacion: null
             });
         }
         else if (usuario.estado !== ESTADO_CONFIRMADO){
-            await this.cad.actualizarUsuario(email, { estado: ESTADO_CONFIRMADO, tokenConfirmacion: null, expiraConfirmacion: null });
+            // Google demuestra que el email es de esta persona: se quita la contraseña
+            // local que pudo dejar alguien que se registró con ese email sin confirmarlo.
+            await this.cad.actualizarUsuario(email, {
+                estado: ESTADO_CONFIRMADO,
+                password: null,
+                tokenConfirmacion: null,
+                expiraConfirmacion: null
+            });
         }
         usuario = await this.cad.obtenerUsuario(email);
         await this.log.registrar("login", { email: email, origen: proveedor });
@@ -277,7 +332,7 @@ function Modelo(cad, log, correo){
         if (!usuario || usuario.estado === ESTADO_ELIMINADO){
             return { error: "No existe ninguna cuenta con ese email", codigo: 404 };
         }
-        await this.cad.actualizarUsuario(email, { estado: ESTADO_ELIMINADO, password: null, tokenConfirmacion: null, expiraConfirmacion: null });
+        await this.cad.actualizarUsuario(email, { estado: ESTADO_ELIMINADO, password: null, fallos: [], tokenConfirmacion: null, expiraConfirmacion: null });
         await this.log.registrar("eliminar_usuario", { email: email, por: solicitante.email });
         return { email: email };
     };

@@ -77,27 +77,37 @@ flowchart LR
 ## Estructura
 
 ```
-index.js                       Punto de entrada: arranque, sesión y semilla del admin
+index.js                       Punto de entrada: crearServidor() (Express + Socket.IO) y arranque
+Dockerfile                     Imagen de contenedor (alternativa a los buildpacks de Cloud Run)
+compartido/
+  laberinto.js                 Núcleo de Maze Duel compartido por cliente y servidor (niveles, intérprete, carrera, bot)
 servidor/
-  api.js                       Capa API (rutas REST + control de sesión y rol)
-  modelo.js                    Capa lógica (reglas de negocio)
+  api.js                       Capa API (rutas REST + revalidación de sesión y rol)
+  sockets.js                   Juego en tiempo real (Socket.IO): eventos, temporizador y bot
+  juego.js                     Partidas (jugadores, fases, temporizador, limpieza)
+  modelo.js                    Capa lógica (reglas de negocio y bloqueo por intentos)
   correo.js                    Envío del correo de confirmación (SMTP)
   oauth.js                     Inicio con Google (Passport)
   seguridad.js                 Hash de contraseñas (bcryptjs)
-  log.js                       Registro de actividad
+  limitador.js                 Límite de peticiones por IP o por usuario
+  cabeceras.js                 Cabeceras de seguridad (CSP, X-Frame-Options...)
+  log.js                       Registro de actividad (emails enmascarados en consola)
   cad.js                       Selección de la CAD (Mongo o memoria)
   cadMongo.js                  CAD contra MongoDB (Mongoose)
   cadMemoria.js                CAD en memoria (pruebas y desarrollo)
-  juego.js                     Lógica del juego Maze Duel (laberinto y partidas)
-  modeloSpec.js                Pruebas unitarias de la capa lógica
-  juegoSpec.js                 Pruebas unitarias de la lógica del juego
+  modeloSpec.js                Pruebas de la capa lógica (usuarios y bloqueo)
   confirmacionSpec.js          Pruebas de confirmación por correo y de OAuth
+  juegoSpec.js                 Pruebas de partidas
+  laberintoSpec.js             Pruebas del núcleo del juego (niveles, validación, intérprete, carrera, bot)
+  socketsSpec.js               Pruebas de integración con Socket.IO y sesiones reales
 cliente/
   index.html                   Página única (SPA)
+  arranque.js                  Creación de las capas y comprobación de sesión
   clienteRest.js               Capa de comunicación (AJAX)
   controlWeb.js                Capa de presentación (GUI)
-  juego.js                     Capa de presentación del juego (laberinto y editor)
-.github/workflows/            CI (ci.yml) y CD (deploy.yml)
+  juego.js                     Capa de presentación del juego (editor de bloques, resultado)
+e2e/                           Pruebas de navegador (Playwright)
+.github/workflows/             CI (ci.yml: Jasmine y e2e) y CD (deploy.yml)
 spec/support/jasmine.json      Configuración de Jasmine
 .env.example                   Nombres de las variables de entorno (sin valores)
 ```
@@ -186,6 +196,55 @@ incorrecto responde `400 {"error": "..."}`.
 La regla vive en la capa lógica como la función pura `evaluarBloqueo(fallos, ahora)`
 de `servidor/modelo.js` (no accede a la base de datos); la ruta solo lee la
 petición, llama a la lógica y devuelve la respuesta.
+
+## Maze Duel: protocolo y lenguaje de bloques
+
+### Eventos de Socket.IO
+
+La conexión exige sesión: el servidor identifica al jugador por la cookie de la
+sesión HTTP, nunca por lo que envía el cliente. Cada evento revalida la cuenta
+(una cuenta eliminada pierde el acceso en su siguiente acción).
+
+| Cliente → servidor | Datos | Respuesta |
+| --- | --- | --- |
+| `crearPartida` | `{ nivel }` (`clasico`, `cruce`, `zigzag`) | `partidaCreada` `{ id, partida }` |
+| `unirsePartida` | `{ id }` | `partidaActualizada` (si ya estabas dentro, devuelve la partida) |
+| `programar` | `{ id, programa }` | `programado` `{ comandos }` o `error` |
+| `cancelarPartida` | `{ id }` (solo administrador) | `partidaCancelada` |
+| `solicitarLista` | — | `listaPartidas` |
+
+| Servidor → cliente | Cuándo |
+| --- | --- |
+| `partidaActualizada` | Alguien se une, al reconectar o al unirte a una partida en curso |
+| `timerInicio` / `timerTick` | Cuando el primer jugador envía su programa (15 s) |
+| `resultado` | Ambos han programado o el tiempo ha terminado (incluye `pasos` para animar la carrera) |
+| `listaPartidas`, `partidaCancelada`, `error` | Estado del lobby y avisos |
+
+Si nadie se une a una partida en 30 segundos, un bot con la ruta óptima ocupa la
+segunda plaza. Las partidas terminadas se borran a los 5 minutos y las que
+esperan rival, a los 10.
+
+### Reglas
+
+- Gana quien llega antes a la salida (menos movimientos). Si llegan a la vez con
+  el mismo número de movimientos, empate.
+- Si nadie llega, gana quien está más cerca **por caminos** (no en línea recta).
+- Máximo 50 movimientos por programa, 60 bloques y 4 niveles de anidamiento.
+
+### Programa (árbol JSON)
+
+```json
+[
+  { "tipo": "repeat", "n": 3, "cuerpo": [ { "tipo": "mv", "dir": "down" } ] },
+  { "tipo": "while", "cond": "not exit", "cuerpo": [ { "tipo": "mv", "dir": "right" } ] },
+  { "tipo": "if", "cond": "wall up", "cuerpo": [ { "tipo": "mv", "dir": "left" } ], "otro": [] }
+]
+```
+
+Condiciones: `wall up`, `wall down`, `wall left`, `wall right` (hay pared en esa
+dirección desde la posición actual) y `not exit` (todavía no has llegado a la salida).
+El servidor y el navegador usan el mismo intérprete (`compartido/laberinto.js`),
+así que lo que ves en "Test" es lo que se ejecuta.
 
 ## Acceso como administrador
 
@@ -311,4 +370,6 @@ En local, si `SMTP_HOST` está vacío, el enlace de confirmación aparece en la 
 - Las restricciones de rol y de sesión se aplican en el servidor, no solo ocultando botones.
 - La confirmación de cuenta exige el token enviado al correo; nadie puede activar una cuenta sin acceso a su buzón.
 - Los usuarios eliminados se conservan como borrado lógico: no pueden entrar con contraseña, pero pueden re-registrarse o reactivar su cuenta entrando de nuevo con Google.
-- El servidor sirve únicamente la carpeta `cliente/`; nunca expone `servidor/` ni `.env`.
+- El servidor sirve únicamente las carpetas `cliente/` y `compartido/` (solo reglas del juego); nunca expone `servidor/` ni `.env`.
+- Cabeceras de seguridad con política de contenido (CSP) y SRI en los scripts de CDN.
+- Límite de peticiones en login, registro y eventos de juego; bloqueo de la cuenta tras 5 contraseñas incorrectas.

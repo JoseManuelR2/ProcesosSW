@@ -30,11 +30,33 @@ describe("Gestión de usuarios (capa lógica)", function(){
         expect(res.estado).toBe("pendiente");
     });
 
-    it("no registra un email ya existente (caso de error)", async function(){
+    it("un email ya confirmado no revela que existe y no cambia su contraseña", async function(){
         await modelo.registrarUsuario("ana@test.com", "contrasena1");
+        await modelo.confirmarCuenta(await tokenDe(modelo, "ana@test.com"));
         let res = await modelo.registrarUsuario("ana@test.com", "otra12345");
-        expect(res.error).toBeDefined();
-        expect(res.codigo).toBe(409);
+        expect(res.error).toBeUndefined();
+        expect(res.estado).toBe("pendiente");
+        expect((await modelo.autenticar("ana@test.com", "contrasena1")).error).toBeUndefined();
+    });
+
+    it("volver a registrarse con una cuenta pendiente reemplaza el enlace caducado", async function(){
+        await modelo.registrarUsuario("ana@test.com", "contrasena1");
+        await modelo.cad.actualizarUsuario("ana@test.com", { expiraConfirmacion: Date.now() - 1000 });
+        let res = await modelo.registrarUsuario("ana@test.com", "contrasena2");
+        expect(res.error).toBeUndefined();
+        let guardado = await modelo.cad.obtenerUsuario("ana@test.com");
+        expect(guardado.expiraConfirmacion).toBeGreaterThan(Date.now());
+        await modelo.confirmarCuenta(await tokenDe(modelo, "ana@test.com"));
+        expect((await modelo.autenticar("ana@test.com", "contrasena2")).error).toBeUndefined();
+    });
+
+    it("usuarioVigente solo devuelve cuentas confirmadas", async function(){
+        await modelo.registrarUsuario("ana@test.com", "contrasena1");
+        expect(await modelo.usuarioVigente("ana@test.com")).toBeNull();
+        await modelo.confirmarCuenta(await tokenDe(modelo, "ana@test.com"));
+        expect(await modelo.usuarioVigente("ana@test.com")).toEqual({ email: "ana@test.com", rol: "usuario" });
+        await modelo.eliminarUsuario(ADMIN, "ana@test.com");
+        expect(await modelo.usuarioVigente("ana@test.com")).toBeNull();
     });
 
     it("no registra una contraseña demasiado corta (caso de error)", async function(){
@@ -134,6 +156,40 @@ describe("Gestión de usuarios (capa lógica)", function(){
         let res = await modelo.autenticar("ana@test.com", "contrasena1");
         expect(res.error).toBeDefined();
         expect(res.codigo).toBe(401);
+    });
+});
+
+describe("Bloqueo real en el inicio de sesión (variante 4)", function(){
+    let modelo;
+
+    beforeEach(async function(){
+        modelo = crearModelo();
+        await modelo.registrarUsuario("ana@test.com", "contrasena1");
+        await modelo.confirmarCuenta(await tokenDe(modelo, "ana@test.com"));
+    });
+
+    it("tras 5 contraseñas incorrectas la cuenta se bloquea, aunque la contraseña sea la buena", async function(){
+        for (let i = 0; i < 5; i++){
+            await modelo.autenticar("ana@test.com", "incorrecta");
+        }
+        let res = await modelo.autenticar("ana@test.com", "contrasena1");
+        expect(res.codigo).toBe(429);
+    });
+
+    it("un inicio correcto antes del bloqueo borra los fallos anteriores", async function(){
+        for (let i = 0; i < 4; i++){
+            await modelo.autenticar("ana@test.com", "incorrecta");
+        }
+        expect((await modelo.autenticar("ana@test.com", "contrasena1")).error).toBeUndefined();
+        expect((await modelo.cad.obtenerUsuario("ana@test.com")).fallos).toEqual([]);
+    });
+
+    it("un email inexistente responde igual que una contraseña incorrecta", async function(){
+        let inexistente = await modelo.autenticar("nadie@test.com", "contrasena1");
+        let incorrecta = await modelo.autenticar("ana@test.com", "incorrecta");
+        expect(inexistente.codigo).toBe(401);
+        expect(incorrecta.codigo).toBe(401);
+        expect(inexistente.error).toBe(incorrecta.error);
     });
 });
 

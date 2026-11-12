@@ -1,676 +1,581 @@
-// Capa de presentación del juego "Maze Duel" (sprint 2).
-// Editor de bloques estilo Scratch + laberinto + partidas en tiempo real.
+// Capa de presentación de Maze Duel: editor de bloques, laberinto, partidas en
+// tiempo real y pantalla de resultado. Las reglas del laberinto vienen de
+// /compartido/laberinto.js (global Laberinto), la misma librería que usa el servidor.
 
-const MAZE = [
-    [1,1,1,1,1,1,1,1,1,1],
-    [1,0,0,0,1,0,0,0,0,1],
-    [1,0,1,0,1,0,1,1,0,1],
-    [1,0,1,0,0,0,0,1,0,1],
-    [1,0,1,1,1,1,0,1,0,1],
-    [1,0,0,0,0,1,0,0,0,1],
-    [1,1,1,1,0,1,1,1,0,1],
-    [1,0,0,0,0,0,0,1,0,1],
-    [1,0,1,1,1,1,0,0,0,1],
-    [1,1,1,1,1,1,1,1,1,1]
+const L = window.Laberinto;
+
+const BLOQUES = [
+    { tipo: "mv", etiqueta: "move", color: "#4C97FF", param: "right" },
+    { tipo: "repeat", etiqueta: "repeat", color: "#FFAB19", contenedor: true, param: 3 },
+    { tipo: "while", etiqueta: "while", color: "#FFAB19", contenedor: true, param: "not exit" },
+    { tipo: "if", etiqueta: "if", color: "#FF8C1A", contenedor: true, param: "wall right" },
+    { tipo: "ifelse", etiqueta: "if/else", color: "#FF8C1A", contenedor: true, param: "wall right", conElse: true }
 ];
 
-const EXIT = [8, 1];
-const START = [1, 1];
+const DIRECCIONES = Object.keys(L.DIRECCIONES);
+const RAIZ = "raiz";
+const MS_PASO_ANIMACION = 350;
 
-const BLOCK_PALETTE = [
-    { type: "start", label: "▶ start", color: "#28a745", hasChildren: true, param: null },
-    { type: "mv", label: "move", color: "#4C97FF", hasChildren: false, param: "right" },
-    { type: "for", label: "for", color: "#FFAB19", hasChildren: true, param: 3 },
-    { type: "while", label: "while", color: "#FFAB19", hasChildren: true, param: "not exit" },
-    { type: "if", label: "if", color: "#FF8C1A", hasChildren: true, param: "wall ahead" },
-    { type: "ifelse", label: "if/else", color: "#FF8C1A", hasChildren: true, param: "wall ahead", hasElse: true }
-];
+function buscarPaleta(tipo){
+    return BLOQUES.find(function(b){ return b.tipo === tipo; }) || null;
+}
 
-const DIRS = ["up", "down", "left", "right"];
-const CONDS = ["wall ahead", "exit visible", "not exit"];
-
-// Global drag state
-let draggedType = null;
-let draggedId = null;
+function escapar(texto){
+    return String(texto).replace(/[&<>"']/g, function(c){
+        return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+}
 
 function JuegoWeb(cw, socket){
     this.cw = cw;
     this.socket = socket;
-    this.partidaActual = null;
-    this.esAdmin = false;
     this.usuario = null;
-    this.blockIdCounter = 0;
-    this.workspace = [{ id: "start0", type: "start", param: null, children: [], elseChildren: [] }];
-    this.animTimer = null;
+    this.esAdmin = false;
+    this.partidaActual = null;
+    this.vista = "ninguna";
+    this.contadorBloques = 0;
+    this.workspace = { id: RAIZ, tipo: "raiz", children: [] };
+    this.animacion = null;
+    this.registrarEventos();
 }
 
-JuegoWeb.prototype.iniciar = function(usuario){
-    this.usuario = usuario;
-    this.esAdmin = usuario && usuario.rol === "administrador";
-    this.socket.emit("identificar", usuario ? usuario.email : null);
-    this.socket.emit("solicitarLista");
-};
-
-JuegoWeb.prototype.nuevoId = function(){ return "b" + (++this.blockIdCounter); };
-
-JuegoWeb.prototype.crearBloque = function(type){
-    let pal = BLOCK_PALETTE.find(function(b){ return b.type === type; });
-    let blk = { id: this.nuevoId(), type: type, param: pal.param, children: [], elseChildren: [] };
-    if (type === "mv"){ blk.param = "right"; }
-    return blk;
-};
-
-JuegoWeb.prototype.renderBloque = function(blk, depth){
-    depth = depth || 0;
-    let pal = BLOCK_PALETTE.find(function(b){ return b.type === blk.type; });
-    let html = '<div class="block" data-id="' + blk.id + '" style="background:' + pal.color + ';margin-left:' + (depth*20) + 'px;">';
-    html += '<span class="block-label">' + pal.label + '</span> ';
-    if (blk.type === "start"){
-        // start block is special, no params
-    } else if (blk.type === "mv"){
-        html += '<select class="block-param" data-id="' + blk.id + '">';
-        DIRS.forEach(function(d){
-            html += '<option value="' + d + '"' + (blk.param === d ? ' selected' : '') + '>' + d + '</option>';
-        });
-        html += '</select>';
-    } else if (blk.type === "for"){
-        html += '<input type="number" class="block-param block-count" data-id="' + blk.id + '" value="' + blk.param + '" min="1" max="10" style="width:50px;">';
-    } else if (blk.type === "while" || blk.type === "if" || blk.type === "ifelse"){
-        html += '<select class="block-param" data-id="' + blk.id + '">';
-        CONDS.forEach(function(c){
-            html += '<option value="' + c + '"' + (blk.param === c ? ' selected' : '') + '>' + c + '</option>';
-        });
-        html += '</select>';
-    }
-    if (blk.type !== "start"){
-        html += ' <button class="block-del" data-id="' + blk.id + '">&times;</button>';
-    }
-    html += '</div>';
-    if (blk.type !== "start" && (blk.hasChildren || pal.hasChildren)){
-        html += '<div class="block-children" data-parent="' + blk.id + '" style="margin-left:' + ((depth+1)*20) + 'px;min-height:20px;border-left:2px dashed #ccc;padding-left:8px;">';
-        blk.children.forEach(function(child){
-            html += this.renderBloque(child, depth + 1);
-        }, this);
-        if (blk.children.length === 0){
-            html += '<div class="block-placeholder">drop here</div>';
-        }
-        html += '</div>';
-    }
-    if (blk.type === "start"){
-        // Start block contains all top-level blocks
-        html += '<div class="block-children" data-parent="' + blk.id + '" style="margin-left:' + ((depth+1)*20) + 'px;min-height:20px;border-left:2px dashed #28a745;padding-left:8px;">';
-        blk.children.forEach(function(child){
-            html += this.renderBloque(child, depth + 1);
-        }, this);
-        if (blk.children.length === 0){
-            html += '<div class="block-placeholder">drop blocks here</div>';
-        }
-        html += '</div>';
-    }
-    if (blk.hasElse || pal.hasElse){
-        html += '<div class="block-else-label" style="margin-left:' + ((depth+1)*20) + 'px;font-size:0.8rem;color:#666;">else:</div>';
-        html += '<div class="block-else-children" data-parent="' + blk.id + '" data-else="1" style="margin-left:' + ((depth+1)*20) + 'px;min-height:20px;border-left:2px dashed #999;padding-left:8px;">';
-        (blk.elseChildren || []).forEach(function(child){
-            html += this.renderBloque(child, depth + 1);
-        }, this);
-        if (!blk.elseChildren || blk.elseChildren.length === 0){
-            html += '<div class="block-placeholder">drop here</div>';
-        }
-        html += '</div>';
-    }
-    return html;
-};
-
-JuegoWeb.prototype.renderizarLaberinto = function(pos1, pos2, path, currentStep){
-    let html = '<div class="maze-grid">';
-    for (let r = 0; r < MAZE.length; r++){
-        for (let c = 0; c < MAZE[r].length; c++){
-            let cls = "maze-cell";
-            if (MAZE[r][c] === 1){ cls += " maze-wall"; }
-            else if (r === EXIT[0] && c === EXIT[1]){ cls += " maze-exit"; }
-            else if (r === START[0] && c === START[1]){ cls += " maze-start"; }
-            if (path){
-                let inPath = path.some(function(p){ return p[0] === r && p[1] === c; });
-                if (inPath){ cls += " maze-path"; }
-            }
-            if (currentStep && currentStep[0] === r && currentStep[1] === c){ cls += " maze-current"; }
-            if (pos1 && pos1[0] === r && pos1[1] === c){ cls += " maze-p1"; }
-            if (pos2 && pos2[0] === r && pos2[1] === c){ cls += " maze-p2"; }
-            html += '<div class="' + cls + '"></div>';
-        }
-    }
-    html += '</div>';
-    return html;
-};
-
-JuegoWeb.prototype.mostrarLobby = function(){
-    this.cw.limpiarMensaje();
+JuegoWeb.prototype.registrarEventos = function(){
     let self = this;
-    let cadena = '<div class="card p-4 mt-3"><h4>Maze Duel</h4>';
-    cadena += '<p class="text-muted">Drag blocks to program your robot. First to reach the exit wins.</p>';
-    cadena += '<button id="btnCrearPartida" class="btn btn-primary mr-2">Create game</button>';
-    cadena += '<button id="btnRefrescar" class="btn btn-secondary">Refresh list</button>';
-    cadena += '<div id="listaPartidas" class="mt-3"></div>';
-    cadena += '</div>';
-    $("#contenido").html(cadena);
 
-    if (self.usuario){
-        if (!self.socket.connected){ self.socket.connect(); }
-        self.socket.emit("identificar", self.usuario.email);
-        self.socket.emit("solicitarLista");
-    }
-
-    $("#btnCrearPartida").on("click", function(){
-        if (!self.usuario){
-            self.cw.mostrarMensaje("You must log in to create a game", "warning");
-            return;
-        }
-        if (!self.socket.connected){
-            self.cw.mostrarMensaje("Connecting...", "info");
-            self.socket.connect();
-        }
-        self.socket.emit("identificar", self.usuario.email);
-        self.socket.emit("crearPartida");
-    });
-    $("#btnRefrescar").on("click", function(){
-        if (self.usuario && !self.socket.connected){
-            self.socket.connect();
-        }
-        if (self.usuario){
-            self.socket.emit("identificar", self.usuario.email);
-        }
-        self.socket.emit("solicitarLista");
-    });
-};
-
-JuegoWeb.prototype.mostrarEditor = function(partida){
-    this.partidaActual = partida;
-    let self = this;
-    let cadena = '<div class="card p-4 mt-3"><h4>Game ' + partida.id + '</h4>';
-    cadena += '<p>Players: ' + partida.jugadores.join(" vs ") + '</p>';
-    cadena += '<div class="row"><div class="col-md-3">';
-    // Palette (vertical)
-    cadena += '<h6>Block palette (drag or click)</h6>';
-    cadena += '<div id="paleta" style="display:flex;flex-direction:column;gap:4px;">';
-    BLOCK_PALETTE.forEach(function(b){
-        cadena += '<div class="block-palette" data-type="' + b.type + '" style="background:' + b.color + ';" draggable="true">' + b.label + '</div>';
-    });
-    cadena += '</div>';
-    cadena += '</div><div class="col-md-5">';
-    // Workspace
-    cadena += '<h6>Your program</h6>';
-    cadena += '<div id="workspace" style="min-height:200px;border:2px dashed #ccc;padding:10px;background:#f8f9fa;border-radius:6px;"></div>';
-    cadena += '<div class="mt-2">';
-    cadena += '<button id="btnProbar" class="btn btn-info btn-sm">Test</button>';
-    cadena += '<button id="btnEnviar" class="btn btn-success btn-sm ml-1">Send program</button>';
-    cadena += '<button id="btnLimpiar" class="btn btn-danger btn-sm ml-1">Clear</button>';
-    cadena += '</div>';
-    cadena += '<p id="estadoPrograma" class="mt-2 text-muted small"></p>';
-    cadena += '<div id="timerDisplay" class="mt-1 text-warning font-weight-bold" style="display:none;"></div>';
-    cadena += '<div id="previewLaberinto" class="mt-2"></div>';
-    cadena += '</div><div class="col-md-4">';
-    cadena += this.renderizarLaberinto(null, null);
-    cadena += '<p class="text-muted mt-2 small">Legend: blue = player 1 start, red = player 2 start, green = exit, yellow = test path</p>';
-    cadena += '</div></div></div>';
-    $("#contenido").html(cadena);
-
-    this.renderWorkspace();
-
-    // Palette click to add
-    $(".block-palette").on("click", function(){
-        let type = $(this).data("type");
-        let blk = self.crearBloque(type);
-        // Add to start block's children
-        self.workspace[0].children.push(blk);
-        self.renderWorkspace();
-    });
-
-    // Drag and drop from palette to workspace
-    $(".block-palette").attr("draggable", "true").on("dragstart", function(e){
-        draggedType = $(this).data("type");
-        draggedId = null;
-        e.originalEvent.dataTransfer.setData("text/plain", $(this).data("type"));
-        e.originalEvent.dataTransfer.effectAllowed = "copy";
-    });
-
-    // Drop handler on workspace and all children containers
-    self.handleDrop = function(e, container){
-        e.preventDefault();
-        e.stopPropagation();
-        container.css("background", "");
-        let type = draggedType || e.originalEvent.dataTransfer.getData("text/plain");
-        if (!type){ return; }
-        // Check if it's a new block from palette
-        let isPalette = BLOCK_PALETTE.some(function(b){ return b.type === type; });
-        if (isPalette){
-            let blk = self.crearBloque(type);
-            // Find the parent block
-            let parentId = container.data("parent");
-            if (parentId){
-                let parent = self.buscarBloque(self.workspace, parentId);
-                if (parent){
-                    if (container.data("else") === 1){
-                        if (!parent.elseChildren){ parent.elseChildren = []; }
-                        parent.elseChildren.push(blk);
-                    } else {
-                        parent.children.push(blk);
-                    }
-                }
-            } else {
-                self.workspace[0].children.push(blk);
-            }
+    // Eventos de la vista (el contenido se redibuja, por eso se delegan en #contenido).
+    $("#contenido")
+        .on("click", "#btnCrearPartida", function(){ self.crearPartida(); })
+        .on("click", "#btnRefrescar", function(){ self.socket.emit("solicitarLista"); })
+        .on("click", ".btn-unirse, .btn-jugar", function(){ self.socket.emit("unirsePartida", { id: $(this).data("id") }); })
+        .on("click", ".btn-cancelar", function(){ self.socket.emit("cancelarPartida", { id: $(this).data("id") }); })
+        .on("click", "#btnProbar", function(){ self.probarPrograma(); })
+        .on("click", "#btnEnviar", function(){ self.enviarPrograma(); })
+        .on("click", "#btnLimpiar", function(){ self.workspace.children = []; self.renderWorkspace(); $("#previewLaberinto").empty(); })
+        .on("click", "#btnVolverLobby", function(){ self.mostrarLobby(); self.socket.emit("solicitarLista"); })
+        .on("click", ".block-del", function(e){
+            e.stopPropagation();
+            self.quitarBloque($(this).data("id"));
             self.renderWorkspace();
-            return;
-        }
-        // Reorder existing block
-        let idx = -1, parentList = null;
-        // Find dragged block's current parent list
-        function findAndRemove(list, id){
-            for (let i = 0; i < list.length; i++){
-                if (list[i].id === id){ list.splice(i, 1); return true; }
-                if (findAndRemove(list[i].children, id)){ return true; }
-                if (list[i].elseChildren && findAndRemove(list[i].elseChildren, id)){ return true; }
-            }
-            return false;
-        }
-        let draggedBlk = self.buscarBloque(self.workspace, draggedId);
-        if (!draggedBlk){ draggedType = null; draggedId = null; return; }
-        // Remove from current location
-        findAndRemove(self.workspace, draggedId);
-        // Add to new container
-        let parentId = container.data("parent");
-        if (parentId){
-            let parent = self.buscarBloque(self.workspace, parentId);
-            if (parent){
-                if (container.data("else") === 1){
-                    if (!parent.elseChildren){ parent.elseChildren = []; }
-                    parent.elseChildren.push(draggedBlk);
-                } else {
-                    parent.children.push(draggedBlk);
-                }
-            }
-        } else {
-            self.workspace[0].children.push(draggedBlk);
-        }
-        self.renderWorkspace();
-        draggedType = null;
-        draggedId = null;
-    }
-
-    // Use event delegation for drag/drop on all containers
-    $(document).off("dragover.drop").on("dragover.drop", "#workspace, .block-children, .block-else-children", function(e){
-        e.preventDefault();
-        e.stopPropagation();
-        if (e.originalEvent.dataTransfer) {
-            e.originalEvent.dataTransfer.dropEffect = "copy";
-        }
-        $(this).css("background", "#e8f4fd");
-    });
-    $(document).off("dragleave.drop").on("dragleave.drop", "#workspace, .block-children, .block-else-children", function(e){
-        $(this).css("background", "");
-    });
-    $(document).off("drop.drop").on("drop.drop", "#workspace, .block-children, .block-else-children", function(e){
-        self.handleDrop(e, $(this));
-    });
-
-    $("#btnLimpiar").on("click", function(){
-        self.workspace = [{ id: "start0", type: "start", param: null, children: [], elseChildren: [] }];
-        self.renderWorkspace();
-        $("#previewLaberinto").html("");
-    });
-
-    $("#btnProbar").on("click", function(){
-        self.probarBloques();
-    });
-
-    $("#btnEnviar").on("click", function(){
-        let codigo = self.bloquesACodigo(self.workspace[0].children);
-        if (!self.usuario){
-            self.cw.mostrarMensaje("You must log in to send a program", "warning");
-            return;
-        }
-        if (!self.socket.connected){
-            self.cw.mostrarMensaje("Connecting...", "info");
-            self.socket.connect();
-        }
-        self.socket.emit("identificar", self.usuario.email);
-        self.socket.emit("programar", { id: partida.id, codigo: codigo });
-    });
-};
-
-JuegoWeb.prototype.renderWorkspace = function(){
-    let self = this;
-    let html = "";
-    this.workspace.forEach(function(blk){
-        html += self.renderBloque(blk, 0);
-    });
-    $("#workspace").html(html || '<div class="text-muted small">Click a block from the palette to add it here.</div>');
-
-    $(".block-param").on("change", function(){
-        let id = $(this).data("id");
-        let blk = self.buscarBloque(self.workspace, id);
-        if (blk){
-            if ($(this).hasClass("block-count")){
-                blk.param = parseInt($(this).val()) || 1;
+        })
+        .on("click", ".block-palette", function(){
+            self.workspace.children.push(self.crearBloque($(this).data("tipo")));
+            self.renderWorkspace();
+        })
+        .on("change", ".block-param", function(){
+            let blk = self.buscarBloque($(this).data("id"));
+            if (!blk){ return; }
+            if (blk.tipo === "repeat"){
+                let n = parseInt($(this).val(), 10);
+                blk.param = isNaN(n) ? 1 : Math.min(Math.max(n, 1), L.LIMITES.repeticiones);
+                $(this).val(blk.param);
             } else {
                 blk.param = $(this).val();
             }
-        }
-    });
+        });
 
-    $(".block-del").on("click", function(){
-        let id = $(this).data("id");
-        self.eliminarBloque(self.workspace, id);
-        self.renderWorkspace();
-    });
-
-    $(".block").attr("draggable", "true").on("dragstart", function(e){
-        draggedId = $(this).data("id");
-        draggedType = null;
-        e.originalEvent.dataTransfer.setData("text/plain", draggedId);
-        e.originalEvent.dataTransfer.effectAllowed = "move";
-        $(this).css("opacity", "0.4");
-    }).on("dragend", function(){
-        $(this).css("opacity", "1");
-    });
+    // Arrastrar y soltar. Los manejadores están en document una sola vez.
+    $(document)
+        .on("dragstart", ".block-palette", function(e){
+            self.iniciarArrastre(e, "nuevo:" + $(this).data("tipo"));
+        })
+        .on("dragstart", ".block", function(e){
+            e.stopPropagation();
+            self.iniciarArrastre(e, "mover:" + $(this).data("id"));
+        })
+        .on("dragover", ".drop-zone", function(e){
+            e.preventDefault();
+            e.stopPropagation();
+            e.originalEvent.dataTransfer.dropEffect = "move";
+            $(this).addClass("drop-zone-activa");
+        })
+        .on("dragleave", ".drop-zone", function(){
+            $(this).removeClass("drop-zone-activa");
+        })
+        .on("drop", ".drop-zone", function(e){
+            e.preventDefault();
+            e.stopPropagation();
+            $(this).removeClass("drop-zone-activa");
+            let datos = e.originalEvent.dataTransfer.getData("text/plain");
+            self.soltar(datos, $(this).data("padre"), $(this).data("lista"));
+        });
 };
 
-JuegoWeb.prototype.buscarBloque = function(lista, id){
-    for (let i = 0; i < lista.length; i++){
-        if (lista[i].id === id){ return lista[i]; }
-        let found = this.buscarBloque(lista[i].children, id);
-        if (found){ return found; }
-        if (lista[i].elseChildren){
-            found = this.buscarBloque(lista[i].elseChildren, id);
-            if (found){ return found; }
+JuegoWeb.prototype.iniciarArrastre = function(e, datos){
+    e.originalEvent.dataTransfer.setData("text/plain", datos);
+    e.originalEvent.dataTransfer.effectAllowed = "move";
+};
+
+// Se llama al iniciar sesión o cerrarla: el socket solo está conectado con sesión.
+JuegoWeb.prototype.iniciar = function(usuario){
+    this.usuario = usuario;
+    this.esAdmin = !!(usuario && usuario.rol === "administrador");
+    if (usuario){
+        if (!this.socket.connected){ this.socket.connect(); }
+    } else {
+        this.socket.disconnect();
+        this.partidaActual = null;
+        this.vista = "ninguna";
+        this.detenerAnimacion();
+    }
+};
+
+JuegoWeb.prototype.detenerAnimacion = function(){
+    if (this.animacion){
+        clearInterval(this.animacion);
+        this.animacion = null;
+    }
+};
+
+// --- Lobby ---
+
+JuegoWeb.prototype.mostrarLobby = function(){
+    this.detenerAnimacion();
+    this.vista = "lobby";
+    this.partidaActual = null;
+    this.cw.limpiarMensaje();
+    let opciones = L.NIVELES.map(function(n){
+        return '<option value="' + n.id + '">' + escapar(n.nombre) + '</option>';
+    }).join("");
+    let html = '<div class="card p-4 mt-3"><h4>Maze Duel</h4>';
+    html += '<p class="text-muted">Program your robot with blocks. First to reach the exit wins.</p>';
+    html += '<ul class="small text-muted">';
+    html += '<li>Max 50 moves per program and 60 blocks.</li>';
+    html += '<li>The fastest robot to the exit wins. If nobody arrives, the closest one by path wins.</li>';
+    html += '<li>Same number of moves and arrival: draw.</li>';
+    html += '<li>After the first program is sent, the other player has 15 seconds. Otherwise their robot stays still.</li>';
+    html += '<li>If nobody joins your game within 30 seconds, a bot plays against you.</li>';
+    html += '</ul>';
+    html += '<div class="form-inline mb-2"><label class="mr-2" for="nivel">Level:</label>';
+    html += '<select id="nivel" class="form-control mr-2">' + opciones + '</select>';
+    html += '<button id="btnCrearPartida" class="btn btn-primary mr-2">Create game</button>';
+    html += '<button id="btnRefrescar" class="btn btn-secondary">Refresh list</button></div>';
+    html += '<div id="listaPartidas" class="mt-3"></div>';
+    html += '</div>';
+    $("#contenido").html(html);
+};
+
+JuegoWeb.prototype.crearPartida = function(){
+    if (!this.usuario){
+        this.cw.mostrarMensaje("You must log in to create a game", "warning");
+        return;
+    }
+    this.socket.emit("crearPartida", { nivel: $("#nivel").val() });
+};
+
+JuegoWeb.prototype.actualizarListaPartidas = function(lista){
+    if (this.vista !== "lobby" || !this.usuario){ return; }
+    let self = this;
+    let html = '<table class="table table-sm"><thead><tr><th>ID</th><th>Level</th><th>Creator</th><th>Players</th><th>Status</th><th></th></tr></thead><tbody>';
+    if (!lista || lista.length === 0){
+        html += '<tr><td colspan="6" class="text-muted">No games. Create one.</td></tr>';
+    }
+    (lista || []).forEach(function(p){
+        let nivel = L.obtenerNivel(p.nivel);
+        let soyParticipante = p.jugadores.indexOf(self.usuario.email) !== -1;
+        html += '<tr>';
+        html += '<td>' + escapar(p.id) + '</td>';
+        html += '<td>' + escapar(nivel ? nivel.nombre : p.nivel) + '</td>';
+        html += '<td>' + escapar(p.creador) + '</td>';
+        html += '<td>' + p.jugadores.map(escapar).join(", ") + '</td>';
+        html += '<td>' + escapar(p.estado) + '</td>';
+        html += '<td>';
+        if (p.estado === "esperando" && !soyParticipante){
+            html += '<button class="btn btn-sm btn-success btn-unirse" data-id="' + escapar(p.id) + '">Join</button> ';
         }
+        if (p.estado === "programando" && soyParticipante){
+            html += '<button class="btn btn-sm btn-primary btn-jugar" data-id="' + escapar(p.id) + '">Play</button> ';
+        }
+        if (self.esAdmin){
+            html += '<button class="btn btn-sm btn-danger btn-cancelar" data-id="' + escapar(p.id) + '">Cancel</button>';
+        }
+        html += '</td></tr>';
+    });
+    html += '</tbody></table>';
+    $("#listaPartidas").html(html);
+};
+
+// --- Editor de bloques ---
+
+JuegoWeb.prototype.abrirEditor = function(partida){
+    this.detenerAnimacion();
+    this.partidaActual = partida;
+    this.vista = "editor";
+    this.cw.limpiarMensaje();
+    let nivel = L.obtenerNivel(partida.nivel);
+    let html = '<div class="card p-4 mt-3"><h4>Game ' + escapar(partida.id) + ' · ' + escapar(nivel.nombre) + '</h4>';
+    html += '<p id="estadoPartida" class="mb-2"></p>';
+    html += '<div class="row"><div class="col-md-3"><h6>Block palette (drag or click)</h6>';
+    html += '<div id="paleta" style="display:flex;flex-direction:column;gap:4px;">';
+    BLOQUES.forEach(function(b){
+        html += '<div class="block-palette" draggable="true" data-tipo="' + b.tipo + '" style="background:' + b.color + ';">' + escapar(b.etiqueta) + '</div>';
+    });
+    html += '</div></div>';
+    html += '<div class="col-md-5"><h6>Your program</h6>';
+    html += '<div id="workspace" class="drop-zone" data-padre="' + RAIZ + '" data-lista="hijos" style="min-height:200px;border:2px dashed #ccc;padding:10px;background:#f8f9fa;border-radius:6px;"></div>';
+    html += '<div class="mt-2">';
+    html += '<button id="btnProbar" class="btn btn-info btn-sm">Test</button> ';
+    html += '<button id="btnEnviar" class="btn btn-success btn-sm ml-1">Send program</button> ';
+    html += '<button id="btnLimpiar" class="btn btn-danger btn-sm ml-1">Clear</button></div>';
+    html += '<p id="estadoPrograma" class="mt-2 small text-muted"></p>';
+    html += '<div id="timerDisplay" class="mt-1 text-warning font-weight-bold" style="display:none;"></div>';
+    html += '<div id="previewLaberinto" class="mt-2"></div></div>';
+    html += '<div class="col-md-4">' + this.renderizarLaberinto(nivel, {}) + '</div>';
+    html += '</div></div>';
+    $("#contenido").html(html);
+    this.renderWorkspace();
+    this.actualizarEstadoEditor();
+};
+
+JuegoWeb.prototype.actualizarEstadoEditor = function(){
+    let p = this.partidaActual;
+    if (!p || this.vista !== "editor"){ return; }
+    let texto = p.estado === "esperando"
+        ? "Waiting for an opponent. If nobody joins within 30 seconds, a bot plays against you."
+        : "Program your robot and send it. The game ends when both programs are in (or when the 15 s timer ends).";
+    $("#estadoPartida").text(texto);
+    $("#btnEnviar").prop("disabled", p.estado !== "programando");
+};
+
+JuegoWeb.prototype.crearBloque = function(tipo){
+    let pal = buscarPaleta(tipo);
+    let blk = { id: "b" + (++this.contadorBloques), tipo: tipo, param: pal.param, children: [] };
+    if (pal.conElse){ blk.elseChildren = []; }
+    return blk;
+};
+
+JuegoWeb.prototype.renderWorkspace = function(){
+    $("#workspace").html(this.renderLista(this.workspace.children, RAIZ, "hijos"));
+    $("#workspace").attr("data-padre", RAIZ).attr("data-lista", "hijos");
+};
+
+JuegoWeb.prototype.renderLista = function(lista, padreId, nombreLista){
+    let self = this;
+    let html = "";
+    lista.forEach(function(blk){ html += self.renderBloque(blk); });
+    if (lista.length === 0 && padreId === RAIZ){
+        html += '<div class="text-muted small">Drag or click a block from the palette.</div>';
+    } else if (lista.length === 0){
+        html += '<div class="block-placeholder">drop here</div>';
+    }
+    return html;
+};
+
+// Renderiza un bloque y, si es contenedor, las zonas donde se sueltan bloques dentro.
+JuegoWeb.prototype.renderBloque = function(blk){
+    let pal = buscarPaleta(blk.tipo);
+    let html = '<div class="block-wrap" style="margin-left:0;">';
+    html += '<div class="block" draggable="true" data-id="' + blk.id + '" style="background:' + pal.color + ';">';
+    html += '<span class="block-label">' + escapar(pal.etiqueta) + '</span> ';
+    html += this.renderParametro(blk);
+    html += ' <button class="block-del" data-id="' + blk.id + '">&times;</button></div>';
+    if (pal.contenedor){
+        html += '<div class="drop-zone block-children" data-padre="' + blk.id + '" data-lista="hijos" style="margin-left:20px;border-left:2px dashed #ccc;padding-left:8px;">';
+        html += this.renderLista(blk.children, blk.id, "hijos") + '</div>';
+    }
+    if (pal.conElse){
+        html += '<div class="block-else-label" style="margin-left:20px;font-size:0.8rem;color:#666;">else:</div>';
+        html += '<div class="drop-zone block-children" data-padre="' + blk.id + '" data-lista="otro" style="margin-left:20px;border-left:2px dashed #999;padding-left:8px;">';
+        html += this.renderLista(blk.elseChildren || [], blk.id, "otro") + '</div>';
+    }
+    return html + '</div>';
+};
+
+JuegoWeb.prototype.renderParametro = function(blk){
+    if (blk.tipo === "repeat"){
+        return '<input type="number" class="block-param" data-id="' + blk.id + '" value="' + escapar(blk.param) + '" min="1" max="' + L.LIMITES.repeticiones + '" style="width:60px;">';
+    }
+    let opciones = blk.tipo === "mv" ? DIRECCIONES : L.CONDICIONES;
+    let html = '<select class="block-param" data-id="' + blk.id + '">';
+    opciones.forEach(function(o){
+        html += '<option value="' + o + '"' + (blk.param === o ? ' selected' : '') + '>' + o + '</option>';
+    });
+    return html + '</select>';
+};
+
+JuegoWeb.prototype.buscarBloque = function(id, lista){
+    lista = lista || this.workspace.children;
+    for (let blk of lista){
+        if (blk.id === id){ return blk; }
+        let dentro = this.buscarBloque(id, blk.children) || this.buscarBloque(id, blk.elseChildren || []);
+        if (dentro){ return dentro; }
     }
     return null;
 };
 
-JuegoWeb.prototype.eliminarBloque = function(lista, id){
+JuegoWeb.prototype.contieneBloque = function(blk, id){
+    return blk.children.some(function(h){ return h.id === id || this.contieneBloque(h, id); }, this) ||
+        (blk.elseChildren || []).some(function(h){ return h.id === id || this.contieneBloque(h, id); }, this);
+};
+
+JuegoWeb.prototype.quitarBloque = function(id, lista){
+    lista = lista || this.workspace.children;
     for (let i = 0; i < lista.length; i++){
         if (lista[i].id === id){
-            // Don't delete start block
-            if (lista[i].type === "start"){ return false; }
             lista.splice(i, 1);
             return true;
         }
-        if (this.eliminarBloque(lista[i].children, id)){ return true; }
-        if (lista[i].elseChildren && this.eliminarBloque(lista[i].elseChildren, id)){ return true; }
+        if (this.quitarBloque(id, lista[i].children) || this.quitarBloque(id, lista[i].elseChildren || [])){
+            return true;
+        }
     }
     return false;
 };
 
-JuegoWeb.prototype.bloquesACodigo = function(lista, indent){
-    indent = indent || "";
-    let lineas = [];
-    lista.forEach(function(blk){
-        if (blk.type === "start"){
-            lineas = lineas.concat(this.bloquesACodigo(blk.children, indent));
-        } else if (blk.type === "mv"){
-            lineas.push(indent + "mv " + blk.param);
-        } else if (blk.type === "for"){
-            lineas.push(indent + "for " + blk.param);
-            lineas = lineas.concat(this.bloquesACodigo(blk.children, indent + "  "));
-            lineas.push(indent + "end");
-        } else if (blk.type === "while"){
-            lineas.push(indent + "while " + blk.param);
-            lineas = lineas.concat(this.bloquesACodigo(blk.children, indent + "  "));
-            lineas.push(indent + "end");
-        } else if (blk.type === "if"){
-            lineas.push(indent + "if " + blk.param);
-            lineas = lineas.concat(this.bloquesACodigo(blk.children, indent + "  "));
-            lineas.push(indent + "end");
-        } else if (blk.type === "ifelse"){
-            lineas.push(indent + "if " + blk.param);
-            lineas = lineas.concat(this.bloquesACodigo(blk.children, indent + "  "));
-            lineas.push(indent + "else");
-            lineas = lineas.concat(this.bloquesACodigo(blk.elseChildren || [], indent + "  "));
-            lineas.push(indent + "end");
-        }
-    }, this);
-    return lineas.join("\\n");
-};
+// Coloca el bloque (nuevo o existente) en la zona donde se ha soltado.
+JuegoWeb.prototype.soltar = function(datos, padreId, lista){
+    let separador = datos.indexOf(":");
+    if (separador === -1){ return; }
+    let accion = datos.slice(0, separador);
+    let valor = datos.slice(separador + 1);
+    let nodo;
 
-JuegoWeb.prototype.parsearCodigoCliente = function(codigo){
-    let lineas = codigo.split("\\n").map(function(l){ return l.trim(); }).filter(function(l){ return l && !l.startsWith("#"); });
-    let comandos = [];
-    function parsearBloque(inicio, fin){
-        let res = [];
-        let j = inicio;
-        while (j < fin){
-            let linea = lineas[j];
-            if (linea.startsWith("repeat ") || linea.startsWith("for ")){
-                let partes = linea.split(/\\s+/);
-                let n = parseInt(partes[1]) || 1;
-                if (n > 10){ n = 10; }
-                let depth = 1;
-                let k = j + 1;
-                while (k < fin && depth > 0){
-                    if (lineas[k].startsWith("repeat ") || lineas[k].startsWith("for ") || lineas[k].startsWith("while ")){ depth++; }
-                    else if (lineas[k] === "end"){ depth--; }
-                    if (depth === 0){ break; }
-                    k++;
-                }
-                let bloque = parsearBloque(j + 1, k);
-                for (let r = 0; r < n; r++){
-                    res = res.concat(bloque);
-                    if (res.length >= 50){ break; }
-                }
-                j = k + 1;
-            } else if (linea.startsWith("while ")){
-                let depth = 1;
-                let k = j + 1;
-                while (k < fin && depth > 0){
-                    if (lineas[k].startsWith("repeat ") || lineas[k].startsWith("for ") || lineas[k].startsWith("while ")){ depth++; }
-                    else if (lineas[k] === "end"){ depth--; }
-                    if (depth === 0){ break; }
-                    k++;
-                }
-                let bloque = parsearBloque(j + 1, k);
-                for (let r = 0; r < 50; r++){
-                    res = res.concat(bloque);
-                    if (res.length >= 50){ break; }
-                }
-                j = k + 1;
-            } else if (linea === "end"){
-                j++;
-            } else if (linea.startsWith("mv ")){
-                let dir = linea.split(/\\s+/)[1];
-                if (["up","down","left","right"].indexOf(dir) !== -1){
-                    res.push(dir);
-                }
-                j++;
-            } else {
-                j++;
-            }
-        }
-        return res;
-    }
-    let flat = parsearBloque(0, lineas.length);
-    return flat.slice(0, 50);
-};
-
-JuegoWeb.prototype.probarBloques = function(){
-    let self = this;
-    let codigo = this.bloquesACodigo(this.workspace);
-    let comandos = this.parsearCodigoCliente(codigo);
-    let pos = [1, 1];
-    let path = [pos.slice()];
-    let step = 0;
-
-    if (this.animTimer){ clearInterval(this.animTimer); }
-
-    if (comandos.length === 0){
-        $("#previewLaberinto").html('<p class="text-warning small">No hay movimientos para probar.</p>');
+    if (accion === "nuevo"){
+        if (!buscarPaleta(valor)){ return; }
+        nodo = this.crearBloque(valor);
+    } else if (accion === "mover"){
+        let existente = this.buscarBloque(valor);
+        if (!existente || padreId === valor || this.contieneBloque(existente, padreId)){ return; }
+        this.quitarBloque(valor);
+        nodo = existente;
+    } else {
         return;
     }
 
-    this.animTimer = setInterval(function(){
-        if (step >= comandos.length){
-            clearInterval(self.animTimer);
-            self.animTimer = null;
-            let finalPos = path[path.length - 1];
-            let html = self.renderizarLaberinto(pos, null, path, null);
-            html += '<p class="small mt-1">Pasos: ' + comandos.length + ' | Posición final: (' + finalPos[0] + ', ' + finalPos[1] + ')</p>';
-            if (finalPos[0] === EXIT[0] && finalPos[1] === EXIT[1]){
-                html += '<p class="text-success small">¡Llega a la salida!</p>';
-            } else {
-                html += '<p class="text-warning small">No llega a la salida.</p>';
-            }
-            $("#previewLaberinto").html(html);
-            return;
-        }
-        let dir = comandos[step];
-        let dr = 0, dc = 0;
-        if (dir === "up"){ dr = -1; }
-        else if (dir === "down"){ dr = 1; }
-        else if (dir === "left"){ dc = -1; }
-        else if (dir === "right"){ dc = 1; }
-        let nr = pos[0] + dr;
-        let nc = pos[1] + dc;
-        if (nr >= 0 && nr < MAZE.length && nc >= 0 && nc < MAZE[0].length && MAZE[nr][nc] !== 1){
-            pos = [nr, nc];
-        }
-        path.push(pos.slice());
-        step++;
-
-        let html = self.renderizarLaberinto(pos, null, path, pos);
-        html += '<p class="small mt-1">Paso ' + step + '/' + comandos.length + ' | Posición: (' + pos[0] + ', ' + pos[1] + ')</p>';
-        $("#previewLaberinto").html(html);
-    }, 400);
+    let destino = this.zonaDe(padreId, lista);
+    if (!destino){ return; }
+    destino.push(nodo);
+    this.renderWorkspace();
 };
+
+JuegoWeb.prototype.zonaDe = function(padreId, lista){
+    if (padreId === RAIZ){ return this.workspace.children; }
+    let padre = this.buscarBloque(padreId);
+    if (!padre){ return null; }
+    if (lista === "otro"){
+        padre.elseChildren = padre.elseChildren || [];
+        return padre.elseChildren;
+    }
+    return padre.children;
+};
+
+// Convierte los bloques en el árbol JSON que entiende el servidor.
+JuegoWeb.prototype.programa = function(lista){
+    let self = this;
+    lista = lista || this.workspace.children;
+    return lista.map(function(blk){
+        if (blk.tipo === "mv"){
+            return { tipo: "mv", dir: blk.param };
+        }
+        if (blk.tipo === "repeat"){
+            return { tipo: "repeat", n: Number(blk.param), cuerpo: self.programa(blk.children) };
+        }
+        if (blk.tipo === "while"){
+            return { tipo: "while", cond: blk.param, cuerpo: self.programa(blk.children) };
+        }
+        let nodo = { tipo: "if", cond: blk.param, cuerpo: self.programa(blk.children) };
+        if (blk.tipo === "ifelse"){
+            nodo.otro = self.programa(blk.elseChildren || []);
+        }
+        return nodo;
+    });
+};
+
+JuegoWeb.prototype.probarPrograma = function(){
+    this.detenerAnimacion();
+    let nivel = L.obtenerNivel(this.partidaActual.nivel);
+    let programa = this.programa();
+    let error = L.validar(programa);
+    if (error){
+        $("#previewLaberinto").html('<p class="text-danger small">' + escapar(error) + '</p>');
+        return;
+    }
+    let traza = L.trazar(nivel, L.INICIOS[0], programa);
+    if (traza.camino.length === 0){
+        $("#previewLaberinto").html('<p class="text-warning small">Your program does not move the robot.</p>');
+        return;
+    }
+    let self = this;
+    let paso = 0;
+    this.animacion = setInterval(function(){
+        paso++;
+        let recorrido = traza.camino.slice(0, paso);
+        let actual = recorrido[recorrido.length - 1];
+        let html = self.renderizarLaberinto(nivel, { p1: actual, camino: recorrido, actual: actual });
+        html += '<p class="small mt-1">Step ' + paso + '/' + traza.camino.length + '</p>';
+        if (paso >= traza.camino.length){
+            self.detenerAnimacion();
+            html += traza.llega
+                ? '<p class="text-success small">Reaches the exit!</p>'
+                : '<p class="text-warning small">Does not reach the exit.</p>';
+        }
+        $("#previewLaberinto").html(html);
+    }, MS_PASO_ANIMACION);
+};
+
+JuegoWeb.prototype.enviarPrograma = function(){
+    if (!this.usuario){
+        this.cw.mostrarMensaje("You must log in to send a program", "warning");
+        return;
+    }
+    let programa = this.programa();
+    let error = L.validar(programa);
+    if (error){
+        this.cw.mostrarMensaje(error, "warning");
+        return;
+    }
+    this.socket.emit("programar", { id: this.partidaActual.id, programa: programa });
+};
+
+// --- Temporizador y estado (el servidor es quien controla el tiempo) ---
+
+JuegoWeb.prototype.mostrarTemporizador = function(segundos){
+    if (this.vista !== "editor"){ return; }
+    $("#timerDisplay").show().text("Time remaining: " + segundos + "s");
+};
+
+// --- Partidas en tiempo real ---
+
+JuegoWeb.prototype.recibirPartida = function(partida){
+    if (!this.usuario){ return; }
+    this.partidaActual = partida;
+    if (partida.estado === "terminada" && partida.resultado){
+        return this.mostrarResultado(partida.resultado);
+    }
+    if (partida.estado === "programando" || partida.estado === "esperando"){
+        if (this.vista === "editor" && this.partidaActual.id === partida.id){
+            this.actualizarEstadoEditor();
+        } else {
+            this.abrirEditor(partida);
+        }
+    }
+};
+
+JuegoWeb.prototype.mostrarProgramaAceptado = function(comandos){
+    if (this.vista !== "editor"){ return; }
+    $("#estadoPrograma").text("Program accepted: the robot makes " + comandos + " moves. Waiting for the other player...");
+};
+
+// --- Resultado ---
 
 JuegoWeb.prototype.mostrarResultado = function(resultado){
+    this.detenerAnimacion();
+    this.vista = "resultado";
+    this.cw.limpiarMensaje();
     let self = this;
-    let cadena = '<div class="card p-4 mt-3"><h4>Result</h4>';
-    if (resultado.ganador){
-        cadena += '<p class="text-success font-weight-bold">Winner: ' + this.escapar(resultado.ganador) + '</p>';
-        cadena += '<p>Reason: ' + this.escapar(resultado.razon) + '</p>';
+    let nivel = L.obtenerNivel(resultado.nivel);
+    let jugadores = resultado.jugadores;
+    let html = '<div class="card p-4 mt-3"><h4>Result · ' + escapar(nivel.nombre) + '</h4>';
+
+    if (!resultado.ganador){
+        html += '<p class="text-warning font-weight-bold">Draw</p>';
+    } else if (this.usuario && resultado.ganador === this.usuario.email){
+        html += '<p class="text-success font-weight-bold">You win!</p>';
     } else {
-        cadena += '<p class="text-warning">Draw</p>';
+        html += '<p class="text-danger font-weight-bold">Winner: ' + escapar(resultado.ganador) + '</p>';
     }
-    cadena += '<p>Commands used:</p><ul>';
-    for (let email in resultado.comandos){
-        cadena += '<li>' + this.escapar(email) + ': ' + resultado.comandos[email] + '</li>';
-    }
-    cadena += '</ul>';
-    cadena += this.renderizarLaberinto(
-        resultado.posicionesFinales[self.partidaActual.jugadores[0]],
-        resultado.posicionesFinales[self.partidaActual.jugadores[1]]
-    );
-    cadena += '<button id="btnVolverLobby" class="btn btn-primary mt-2" onclick="if(window.juegoWeb){window.juegoWeb.mostrarLobby();window.juegoWeb.socket.emit(\'solicitarLista\');}">Back to lobby</button>';
-    cadena += '</div>';
-    $("#contenido").html(cadena);
-    $(document).off("click.volver").on("click.volver", "#btnVolverLobby", function(){ self.mostrarLobby(); self.socket.emit("solicitarLista"); });
-};
-
-JuegoWeb.prototype.actualizarListaPartidas = function(lista){
-    let self = this;
-    if (!self.usuario){
-        console.log("actualizarListaPartidas: usuario no identificado");
-        return;
-    }
-    let html = '<table class="table table-sm"><thead><tr><th>ID</th><th>Creator</th><th>Players</th><th>Status</th><th></th></tr></thead><tbody>';
-    if (!lista || lista.length === 0){
-        html += '<tr><td colspan="5" class="text-muted">No games. Create one.</td></tr>';
-    }
-    lista.forEach(function(p){
-        html += '<tr>';
-        html += '<td>' + p.id + '</td>';
-        html += '<td>' + p.creador + '</td>';
-        html += '<td>' + p.jugadores.join(", ") + '</td>';
-        html += '<td>' + p.estado + '</td>';
-        html += '<td>';
-        if (p.estado === "esperando" && p.creador !== self.usuario.email){
-            html += '<button class="btn btn-sm btn-success btn-unirse" data-id="' + p.id + '">Join</button> ';
-        }
-        if (p.estado === "programando" && p.jugadores.indexOf(self.usuario.email) !== -1){
-            html += '<button class="btn btn-sm btn-primary btn-jugar" data-id="' + p.id + '">Play</button> ';
-        }
-        if (self.esAdmin){
-            html += '<button class="btn btn-sm btn-danger btn-cancelar" data-id="' + p.id + '">Cancel</button>';
-        }
-        html += '</td>';
-        html += '</tr>';
+    html += '<p>Reason: ' + escapar(resultado.razon) + '</p>';
+    html += '<p class="mb-1">Moves used:</p><ul>';
+    jugadores.forEach(function(email, i){
+        let color = i === 0 ? "blue" : "red";
+        html += '<li><span style="color:' + color + ';">' + (i === 0 ? "●" : "●") + '</span> ' + escapar(email) + ': ' + resultado.comandos[email] + '</li>';
     });
-    html += '</tbody></table>';
-    $("#listaPartidas").html(html);
+    html += '</ul>';
+    html += '<div id="tableroResultado">' + this.renderizarLaberinto(nivel, {}) + '</div>';
+    html += '<p class="small text-muted">Blue = player 1, red = player 2, green = exit.</p>';
+    html += '<button id="btnVolverLobby" class="btn btn-primary mt-2">Back to lobby</button>';
+    html += '</div>';
+    $("#contenido").html(html);
 
-    $(".btn-unirse").on("click", function(){ self.socket.emit("unirsePartida", $(this).data("id")); });
-    $(".btn-jugar").on("click", function(){ self.socket.emit("unirsePartida", $(this).data("id")); });
-    $(".btn-cancelar").on("click", function(){ self.socket.emit("cancelarPartida", $(this).data("id")); });
+    let pasos = resultado.pasos || [];
+    let indice = 0;
+    let dibujar = function(frame){
+        let p1 = frame.posiciones[0];
+        let p2 = frame.posiciones[1];
+        $("#tableroResultado").html(self.renderizarLaberinto(nivel, { p1: p1, p2: p2 }));
+    };
+    if (pasos.length === 0){
+        return dibujar({ posiciones: [resultado.posicionesFinales[jugadores[0]], resultado.posicionesFinales[jugadores[1]]] });
+    }
+    dibujar(pasos[0]);
+    this.animacion = setInterval(function(){
+        indice++;
+        if (indice >= pasos.length){
+            self.detenerAnimacion();
+            return dibujar(pasos[pasos.length - 1]);
+        }
+        dibujar(pasos[indice]);
+    }, MS_PASO_ANIMACION);
 };
 
-JuegoWeb.prototype.escapar = function(texto){
-    return String(texto).replace(/[&<>"']/g, function(c){
-        return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
-    });
-};
+// --- Dibujo del laberinto ---
 
-JuegoWeb.prototype.iniciarTimer = function(segundos){
-    let self = this;
-    if (this._timerHandle){ clearInterval(this._timerHandle); }
-    this._timerHandle = setInterval(function(){
-        segundos--;
-        if (segundos <= 0){
-            clearInterval(self._timerHandle);
-            self._timerHandle = null;
-            $("#timerDisplay").hide();
-            let codigo = self.bloquesACodigo(self.workspace[0].children);
-            if (self.usuario && self.partidaActual){
-                if (!self.socket.connected){ self.socket.connect(); }
-                self.socket.emit("identificar", self.usuario.email);
-                self.socket.emit("programar", { id: self.partidaActual.id, codigo: codigo });
-                self.cw.mostrarMensaje("Time's up. Program sent automatically.", "warning");
+// opciones: p1, p2 (posiciones actuales), camino (ruta a resaltar), actual (paso actual)
+JuegoWeb.prototype.renderizarLaberinto = function(nivel, opciones){
+    let html = '<div class="maze-grid">';
+    let igual = function(a, b){ return !!a && !!b && a[0] === b[0] && a[1] === b[1]; };
+    for (let r = 0; r < nivel.mapa.length; r++){
+        for (let c = 0; c < nivel.mapa[r].length; c++){
+            let celda = [r, c];
+            let cls = "maze-cell";
+            if (nivel.mapa[r][c] === "1"){ cls += " maze-wall"; }
+            else if (igual(celda, nivel.salida)){ cls += " maze-exit"; }
+            else if (igual(celda, L.INICIOS[0])){ cls += " maze-start"; }
+            else if (igual(celda, L.INICIOS[1])){ cls += " maze-start2"; }
+
+            let jugador = igual(celda, opciones.p1) || igual(celda, opciones.p2);
+            if (opciones.camino && !jugador && opciones.camino.some(function(p){ return igual(p, celda); })){
+                cls += " maze-path";
             }
-        } else {
-            $("#timerDisplay").text("Time remaining: " + segundos + "s");
+            if (igual(celda, opciones.actual)){ cls += " maze-current"; }
+            if (igual(celda, opciones.p1)){ cls += " maze-p1"; }
+            if (igual(celda, opciones.p2)){ cls += " maze-p2"; }
+            html += '<div class="' + cls + '"></div>';
         }
-    }, 1000);
+    }
+    return html + '</div>';
 };
+
+// --- Socket ---
 
 function configurarSocket(juego){
-    juego.socket.on("connect", function(){
+    let s = juego.socket;
+    s.on("connect", function(){
+        s.emit("solicitarLista");
+    });
+    s.on("connect_error", function(err){
         if (juego.usuario){
-            juego.socket.emit("identificar", juego.usuario.email);
+            juego.cw.mostrarMensaje("No se pudo conectar con el juego: " + err.message, "danger");
+        }
+    });
+    s.on("partidaCreada", function(data){
+        juego.abrirEditor(data.partida);
+    });
+    s.on("partidaActualizada", function(partida){
+        juego.recibirPartida(partida);
+    });
+    s.on("programado", function(data){
+        juego.mostrarProgramaAceptado(data.comandos);
+    });
+    s.on("timerInicio", function(data){
+        juego.mostrarTemporizador(data.segundos);
+    });
+    s.on("timerTick", function(data){
+        juego.mostrarTemporizador(data.segundos);
+    });
+    s.on("resultado", function(resultado){
+        juego.mostrarResultado(resultado);
+    });
+    s.on("listaPartidas", function(lista){
+        juego.actualizarListaPartidas(lista);
+    });
+    s.on("partidaCancelada", function(data){
+        juego.cw.mostrarMensaje("Game " + data.id + " cancelled", "warning");
+        if (juego.partidaActual && juego.partidaActual.id === data.id){
+            juego.mostrarLobby();
             juego.socket.emit("solicitarLista");
         }
     });
-    juego.socket.on("partidaCreada", function(data){
-        juego.partidaActual = data.partida;
-        juego.mostrarEditor(data.partida);
-    });
-    juego.socket.on("partidaActualizada", function(partida){
-        juego.partidaActual = partida;
-        if (partida.estado === "programando" && partida.jugadores.indexOf(juego.usuario.email) !== -1){
-            juego.mostrarEditor(partida);
-        }
-    });
-    juego.socket.on("resultado", function(resultado){
-        juego.mostrarResultado(resultado);
-    });
-    juego.socket.on("listaPartidas", function(lista){
-        if ($("#listaPartidas").length){
-            juego.actualizarListaPartidas(lista);
-        }
-    });
-    juego.socket.on("timerInicio", function(data){
-        $("#timerDisplay").show().text("Time remaining: " + data.segundos + "s (other player sent their program)");
-        juego.iniciarTimer(data.segundos);
-    });
-    juego.socket.on("timerTick", function(data){
-        $("#timerDisplay").text("Time remaining: " + data.segundos + "s");
-        if (data.segundos <= 0){
-            $("#timerDisplay").hide();
-        }
-    });
-    juego.socket.on("partidaCancelada", function(data){
-        juego.cw.mostrarMensaje("Game " + data.id + " cancelled", "warning");
-        juego.mostrarLobby();
-    });
-    juego.socket.on("error", function(msg){
+    s.on("error", function(msg){
         juego.cw.mostrarMensaje(msg, "danger");
     });
 }

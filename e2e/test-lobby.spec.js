@@ -9,14 +9,14 @@ test("back to lobby", async ({ browser }) => {
     page1.on("console", msg => console.log("P1:", msg.text()));
     page1.on("pageerror", err => console.log("P1 ERROR:", err.message));
 
-    await page1.goto("http://localhost:3300");
+    await page1.goto("http://localhost:3000");
     await page1.waitForTimeout(500);
     await page1.fill("#email", "admin@test.com");
     await page1.fill("#password", "adminpass1");
     await page1.click("#btnLogin");
     await page1.waitForTimeout(2000);
 
-    await page2.goto("http://localhost:3300");
+    await page2.goto("http://localhost:3000");
     await page2.waitForTimeout(500);
     await page2.fill("#email", "jugador@test.com");
     await page2.fill("#password", "contrasena1");

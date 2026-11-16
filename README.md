@@ -375,7 +375,8 @@ y devuelve la URL pública en el resumen del workflow.
   - [x] Comunicación por WebSockets (Socket.IO) para partidas en tiempo real.
   - [x] Juego Maze Duel: los jugadores programan movimientos y compiten por resolver un laberinto.
   - [x] El administrador puede ver y cancelar todas las partidas en curso.
-  - [x] Pruebas unitarias de la lógica del juego (19 specs).
+  - [x] Pruebas unitarias de la lógica del juego (61 specs: 23 de partidas y 38 del núcleo).
+  - [x] Pruebas end-to-end del lobby con Playwright, integradas en el CI.
 
 ## Configurar Google y el correo
 

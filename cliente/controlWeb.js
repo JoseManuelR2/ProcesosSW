@@ -117,6 +117,67 @@ function ControlWeb(){
             });
         });
         $("#btnIrRegistro").on("click", function(){ self.mostrarRegistro(); });
+
+        // One Tap es opcional: si falla o no está configurado, el formulario y el
+        // botón "Entrar con Google" siguen funcionando.
+        rest.configuracionOAuth(function(config){
+            if (config && config.googleClientId){
+                self.iniciarOneTap(config.googleClientId);
+            }
+        });
+    };
+
+    // --- Google One Tap ---
+
+    this.iniciarOneTap = function(clientId){
+        let self = this;
+
+        function iniciar(){
+            if (!window.google || !google.accounts || !google.accounts.id){ return; }
+            google.accounts.id.initialize({
+                client_id: clientId,
+                callback: function(respuesta){
+                    if (respuesta && respuesta.credential){
+                        self.entrarConOneTap(respuesta.credential);
+                    }
+                },
+                auto_select: false,
+                cancel_on_tap_outside: true,
+                use_fedcm_for_prompt: true
+            });
+            try{
+                google.accounts.id.prompt();
+            }
+            catch(e){
+                console.warn("One Tap no disponible", e);
+            }
+        }
+
+        if (window.google && google.accounts && google.accounts.id){
+            return iniciar();
+        }
+        if (document.querySelector('script[data-google-gsi]')){
+            return;
+        }
+
+        // Se carga aquí y no en index.html para no bloquear el arranque de la SPA.
+        let script = document.createElement("script");
+        script.src = "https://accounts.google.com/gsi/client";
+        script.async = true;
+        script.defer = true;
+        script.setAttribute("data-google-gsi", "1");
+        script.onload = iniciar;
+        document.head.appendChild(script);
+    };
+
+    this.entrarConOneTap = function(credential){
+        let self = this;
+        rest.oneTap(credential, function(usuario){
+            self.usuario = usuario;
+            self.mostrarInicio();
+            self.mostrarMensaje("Sesión iniciada como " + usuario.email, "success");
+            self.notificarSesion(usuario);
+        });
     };
 
     // --- Registro ---

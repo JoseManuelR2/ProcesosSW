@@ -42,6 +42,15 @@ function ClienteRest(cw){
         this.peticion("POST", "/api/login", { email: email, password: password }, ok, err);
     };
 
+    // Google One Tap: el client ID es público y el ID token se valida en el servidor.
+    this.configuracionOAuth = function(ok, err){
+        this.peticion("GET", "/api/oauth/config", null, ok, err);
+    };
+
+    this.oneTap = function(credential, ok, err){
+        this.peticion("POST", "/api/oneTap", { credential: credential }, ok, err);
+    };
+
     this.logout = function(ok, err){
         this.peticion("POST", "/api/logout", null, ok, err);
     };

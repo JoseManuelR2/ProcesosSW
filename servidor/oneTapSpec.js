@@ -59,6 +59,7 @@ describe("Google One Tap (API)", function(){
         let res = await fetch(url + "/");
         let csp = res.headers.get("content-security-policy");
         expect(csp).toContain("https://accounts.google.com");
+        expect(csp).toContain("style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://accounts.google.com");
         expect(csp).toContain("frame-src https://accounts.google.com");
     });
 

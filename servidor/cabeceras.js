@@ -6,7 +6,7 @@
 const POLITICA_CONTENIDO = [
     "default-src 'self'",
     "script-src 'self' https://cdn.jsdelivr.net https://code.jquery.com https://accounts.google.com",
-    "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
+    "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://accounts.google.com",
     "img-src 'self' data: https://*.googleusercontent.com https://www.gstatic.com",
     "font-src 'self' https://fonts.gstatic.com",
     "connect-src 'self' ws: wss: https://accounts.google.com",

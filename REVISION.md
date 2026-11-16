@@ -1,7 +1,8 @@
 # Revisión del proyecto ProcesosSW
 
-> **Estado:** todos los puntos de este informe están implementados en la rama
-> `feature/revision-maze-duel` (no en `main`). Las pruebas pasan: 96 specs.
+> **Estado:** todos los puntos de este informe se integraron en `main` mediante
+> pull request. El proyecto ha seguido evolucionando: incluye Google One Tap y la
+> suite actual tiene 120 specs unitarias más las pruebas end-to-end.
 
 Este documento recoge los errores que he encontrado al revisar el código, cómo
 arreglarlos de forma sencilla y qué se podría mejorar. Está ordenado por

@@ -1,6 +1,6 @@
 # ProcesosSW
 
-Aplicación tipo SaaS con arquitectura en capas y gestión de usuarios (Sprint 1).
+Aplicación tipo SaaS con arquitectura en capas y gestión de usuarios (Sprints 1 y 2).
 El backend sirve el frontend y toda la lógica de negocio y el acceso a datos
 residen en el servidor; el cliente solo se comunica mediante una API REST.
 
@@ -11,6 +11,7 @@ residen en el servidor; el cliente solo se comunica mediante una API REST.
 | Node.js + Express | Backend y API REST | Mismo lenguaje (JavaScript) en cliente y servidor; Express es minimalista y muy extendido. |
 | MongoDB + Mongoose | Base de datos | Base de datos real (los datos sobreviven a un reinicio); Mongoose facilita el modelado y la capa de acceso a datos. |
 | Passport.js + passport-google-oauth20 | Inicio con Google (OAuth 2.0) | Estrategia estándar y probada para OAuth; Passport solo verifica la identidad y la sesión la abre la aplicación. |
+| Google Identity Services + google-auth-library | Google One Tap | API actual de Google (sustituye al antiguo `passport-google-one-tap`); el ID token se verifica en el servidor y se reutiliza el mismo inicio de sesión. |
 | Nodemailer | Correo de confirmación | Envío por SMTP autenticado (Gmail con contraseña de aplicación o un servicio transaccional); los proveedores cloud suelen bloquear SMTP directo, así que se usa un servicio con cuenta. |
 | express-session | Sesión de usuario | Sesión en el servidor con cookie; el cierre de sesión es inmediato y muy fácil de explicar. |
 | bcryptjs | Hash de contraseñas | Nunca se guarda la contraseña en claro; bcryptjs es puro JavaScript (sin compilación nativa). |
@@ -87,7 +88,7 @@ servidor/
   juego.js                     Partidas (jugadores, fases, temporizador, limpieza)
   modelo.js                    Capa lógica (reglas de negocio y bloqueo por intentos)
   correo.js                    Envío del correo de confirmación (SMTP)
-  oauth.js                     Inicio con Google (Passport)
+  oauth.js                     Inicio con Google (Passport) y Google One Tap
   seguridad.js                 Hash de contraseñas (bcryptjs)
   limitador.js                 Límite de peticiones por IP o por usuario
   cabeceras.js                 Cabeceras de seguridad (CSP, X-Frame-Options...)
@@ -97,6 +98,7 @@ servidor/
   cadMemoria.js                CAD en memoria (pruebas y desarrollo)
   modeloSpec.js                Pruebas de la capa lógica (usuarios y bloqueo)
   confirmacionSpec.js          Pruebas de confirmación por correo y de OAuth
+  oneTapSpec.js                Pruebas de Google One Tap (configuración, CSP y tokens)
   juegoSpec.js                 Pruebas de partidas
   laberintoSpec.js             Pruebas del núcleo del juego (niveles, validación, intérprete, carrera, bot)
   socketsSpec.js               Pruebas de integración con Socket.IO y sesiones reales
@@ -140,8 +142,8 @@ el propio servicio; nunca se suben al repositorio.
 | `SESSION_SECRET` | Secreto para firmar la cookie de sesión. Obligatorio en producción. |
 | `ADMIN_EMAIL` | Email del administrador inicial (semilla al arrancar). |
 | `ADMIN_PASSWORD` | Contraseña del administrador inicial. |
-| `GOOGLE_CLIENT_ID` | ID de cliente OAuth de Google. |
-| `GOOGLE_CLIENT_SECRET` | Secreto del cliente OAuth de Google. |
+| `GOOGLE_CLIENT_ID` | ID de cliente OAuth de Google (también para One Tap). |
+| `GOOGLE_CLIENT_SECRET` | Secreto del cliente OAuth de Google (solo lo necesita el botón OAuth). |
 | `SMTP_HOST` | Servidor SMTP para el correo de confirmación. Obligatorio en producción. |
 | `SMTP_PORT` | Puerto SMTP (por defecto 587; 465 usa TLS directo). |
 | `SMTP_USER` / `SMTP_PASS` | Credenciales SMTP. |
@@ -160,12 +162,23 @@ casos de error (email duplicado, cuenta pendiente, contraseña incorrecta, un
 usuario normal intentando eliminar a otro, etc.). Las pruebas de la variante 4
 (bloqueo por intentos fallidos) llevan la etiqueta `variante4` en el nombre.
 
+```bash
+npm run test:e2e
+```
+
+Las pruebas end-to-end usan Playwright con Chromium: arrancan el servidor con un
+administrador sembrado y comprueban la interfaz real (carga de la página, script
+del juego y flujo del lobby). El CI ejecuta las dos suites (`npm test` y
+`npx playwright test`).
+
 ## API REST
 
 | Método | Ruta | Acceso | Devuelve |
 | --- | --- | --- | --- |
 | POST | `/api/registro` | público | Crea la cuenta en estado `pendiente`. |
 | GET | `/api/confirmarCuenta?token=…` | público (enlace del correo) | Confirma la cuenta y redirige a `/` con el resultado. El token caduca a las 24 h y es de un solo uso. |
+| GET | `/api/oauth/config` | público | Client ID público de Google para inicializar One Tap (`null` si no está configurado). |
+| POST | `/api/oneTap` | público | Recibe el ID token de Google Identity Services, lo verifica y abre la sesión. |
 | GET | `/auth/google` | público | Inicia el acceso con Google (redirige a Google). |
 | GET | `/auth/google/callback` | Google | Recibe a Google, abre la sesión y redirige a `/`. |
 | POST | `/api/login` | público | Inicia sesión y abre la sesión (cookie). |
@@ -276,7 +289,8 @@ envían junto con la entrega (no se publican en el repositorio).
 - **GitHub Flow:** cada cambio se desarrolla en su propia rama y se integra en
   `main` mediante un pull request (aunque lo revise el propio autor).
 - **CI** (`.github/workflows/ci.yml`): en cada push y pull request ejecuta
-  `npm ci` y `npm test`. No se integra un PR con el CI en rojo.
+  `npm ci`, `npm test` y la suite end-to-end de Playwright. No se integra un PR
+  con el CI en rojo.
 - **CD** (`.github/workflows/deploy.yml`): cada push a `main` despliega
   automáticamente en Cloud Run. No se despliega a mano.
 
@@ -354,6 +368,7 @@ y devuelve la URL pública en el resumen del workflow.
   - [x] Registro (log) de la actividad relevante.
 - **Hito 4 — Servicios externos y cierre**
   - [x] Inicio de sesión con Google (OAuth 2.0 con Passport.js).
+  - [x] Google One Tap con Google Identity Services (ID token verificado en el servidor).
   - [x] Confirmación de cuenta por correo electrónico (enlace con token de un solo uso y caducidad de 24 h).
   - [x] Manejo de errores con mensajes claros al usuario (correo fallido, enlace caducado, cuenta pendiente, etc.).
 - **Hito 5 — Juego en tiempo real (sprint 2)**
@@ -372,6 +387,21 @@ y devuelve la URL pública en el resumen del workflow.
 4. *Clientes* → *+ Crear cliente* → tipo **Aplicación web**:
    - Orígenes autorizados de JavaScript: `http://localhost:3000` y `https://procesossw-tctg2penfa-ew.a.run.app`
    - URI de redirección autorizados (exactas): `http://localhost:3000/auth/google/callback` y `https://procesossw-tctg2penfa-ew.a.run.app/auth/google/callback`
+
+### Google One Tap
+
+One Tap usa el mismo cliente OAuth que el botón “Entrar con Google”: no necesita
+un secreto ni una URI de redirección nuevos. Únicamente hay que asegurarse de que
+los **orígenes autorizados de JavaScript** del cliente incluyan las dos URLs del
+apartado anterior (`http://localhost:3000` y la URL pública de Cloud Run); sin
+ellos Google no muestra el prompt.
+
+El cliente pide `GET /api/oauth/config`, carga `https://accounts.google.com/gsi/client`
+y, cuando el usuario elige una cuenta, envía el ID token a `POST /api/oneTap`. El
+servidor verifica el token con `google-auth-library` (audiencia = client ID,
+email verificado) y abre la misma sesión que el login local. Si One Tap no está
+disponible o el usuario lo cancela, el formulario y el botón de Google siguen
+funcionando como alternativa.
 
 ### Correo de confirmación
 

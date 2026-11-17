@@ -56,7 +56,7 @@ function leyendaTablero(){
         '<span class="legend-item"><span class="legend-swatch" style="background:linear-gradient(135deg,#2563eb,#60a5fa);"></span>You</span>' +
         '<span class="legend-item"><span class="legend-swatch" style="background:linear-gradient(135deg,#e11d48,#fb7185);"></span>Rival</span>' +
         '<span class="legend-item"><span class="legend-swatch" style="background:linear-gradient(135deg,#059669,#34d399);"></span>Exit</span>' +
-        '<span class="legend-item"><span class="legend-swatch" style="background:#263453;"></span>Wall</span>' +
+        '<span class="legend-item"><span class="legend-swatch" style="background:#070c16;box-shadow:inset 0 0 0 1px rgba(148,163,184,.4);"></span>Wall</span>' +
         '<span class="legend-item"><span class="legend-swatch" style="background:linear-gradient(135deg,#0e7490,#22d3ee);"></span>Ice</span>' +
         '<span class="legend-item"><span class="legend-swatch" style="background:linear-gradient(135deg,#b45309,#f59e0b);"></span>Trap</span>' +
         '<span class="legend-item"><span class="legend-swatch" style="background:linear-gradient(135deg,#6d28d9,#a78bfa);"></span>Teleport</span>' +
@@ -201,33 +201,13 @@ JuegoWeb.prototype.mostrarLobby = function(){
             escapar(d.nombre) + ' (' + d.filas + '×' + d.columnas + ')</option>';
     }).join("");
 
-    let reglas = [
-        { icono: "map", titulo: "Special tiles", texto: "Ice slides your robot on, traps send it back to the start, teleports jump across the maze and arrows only let you in one way." },
-        { icono: "sparkles", titulo: "Fresh maze", texto: "Every game generates a new random maze. Bigger maps have more special tiles and a higher move limit." },
-        { icono: "grid", titulo: "60-block limit", texto: "A program can hold up to 60 blocks and 4 nesting levels. Combine repeat, while and if/else to do more with less." },
-        { icono: "clock", titulo: "Time & bot", texto: "The second player has 15 seconds after the first program is sent. If nobody joins within 30 seconds, a bot takes the free slot." }
-    ].map(function(r){
-        return '<div class="rule-card"><span class="rule-icon">' + iconoSVG(r.icono) + '</span>' +
-            '<strong>' + r.titulo + '</strong><span class="rule-text">' + r.texto + '</span></div>';
-    }).join("");
-
     let html = '<div class="lobby">' +
         '<header class="lobby-hero">' +
         '<div>' +
         '<span class="eyebrow">' + iconoSVG("gamepad") + ' Maze Duel · 1 vs 1</span>' +
         '<h1>Program your robot.<br><span class="gradient-text">Win the race.</span></h1>' +
-        '<p>Build a route with blocks and guide your robot through a fresh maze. Reach the exit before your rival, or beat the bot if nobody joins.</p>' +
-        '<div class="hero-badges">' +
-        '<span class="hero-badge-chip">' + iconoSVG("map") + ' New random maze every game</span>' +
-        '<span class="hero-badge-chip">' + iconoSVG("zap") + ' Live with Socket.IO</span>' +
-        '<span class="hero-badge-chip">' + iconoSVG("clock") + ' 15 s per round</span>' +
-        '</div></div>' +
-        '<div class="lobby-hero-art"><div class="hero-visual">' +
-        '<div class="hero-visual-bar"><span class="traffic red"></span><span class="traffic amber"></span><span class="traffic green"></span>' +
-        '<span class="hero-visual-title">' + iconoSVG("gamepad") + 'maze_duel.exe</span></div>' +
-        UIJ.miniLaberinto() +
-        '<div class="hero-visual-foot"><span>' + iconoSVG("robot") + ' player vs player</span><span>' + iconoSVG("flag") + ' reach the exit</span></div>' +
-        '</div></div></header>' +
+        '<p>Build a route with blocks and reach the exit before your rival.</p>' +
+        '</div></header>' +
 
         '<div class="lobby-grid">' +
         '<section class="panel create-panel">' +
@@ -247,14 +227,7 @@ JuegoWeb.prototype.mostrarLobby = function(){
         '<div class="panel-head"><div><h2>Open games</h2><p>Join a room or continue your match.</p></div>' +
         '<span class="count-pill" id="contadorPartidas">—</span></div>' +
         '<div id="listaPartidas" class="game-list"></div>' +
-        '</section></div>' +
-
-        '<section class="panel rules-panel">' +
-        '<div class="panel-head"><div><h2>How to play</h2><p>Everything you need to know before your first move.</p></div>' +
-        '<span class="chip">' + iconoSVG("info") + ' Quick guide</span></div>' +
-        '<div class="rules-grid">' + reglas + '</div>' +
-        '<p class="rules-note">' + iconoSVG("trophy") + ' The fastest robot to the exit wins. If nobody arrives, the closest one by path wins. Same moves and arrival means a draw.</p>' +
-        '</section></div>';
+        '</section></div></div>';
 
     $("#contenido").html(html);
 };
@@ -357,8 +330,6 @@ JuegoWeb.prototype.abrirEditor = function(partida){
         '<div class="game-chips">' +
         '<span class="chip">' + iconoSVG("map") + ' ' + escapar(nombreNivel(nivel)) + '</span>' +
         '<span class="chip">' + iconoSVG("grid") + ' ' + (nivel.filas || "?") + '×' + (nivel.columnas || "?") + '</span>' +
-        '<span class="chip">' + iconoSVG("flag") + ' Max ' + L.maximoPasos(nivel) + ' moves</span>' +
-        '<span class="chip">' + iconoSVG("zap") + ' Seed ' + escapar(nivel.semilla) + '</span>' +
         '</div></div>' +
 
         '<div id="identityBanner" class="identity-banner ' + (indice === 0 ? "identity-blue" : "identity-red") + '">' +
@@ -701,11 +672,7 @@ JuegoWeb.prototype.mostrarResultado = function(resultado){
         '<span class="eyebrow">' + iconoSVG("flag") + ' Match result</span>' +
         '<h1>' + titulo + '</h1>' +
         '<p>' + subtitulo + '</p>' +
-        '<div class="hero-badges result-badges">' +
-        '<span class="hero-badge-chip">' + iconoSVG("map") + ' ' + escapar(nombreNivel(nivel)) + ' ' +
-        (nivel.filas || "?") + '×' + (nivel.columnas || "?") + '</span>' +
-        '<span class="hero-badge-chip">' + iconoSVG("info") + ' ' + escapar(traducirRazon(resultado.razon)) + '</span>' +
-        '</div></header>' +
+        '</header>' +
 
         '<div class="result-grid">' +
         '<section class="panel">' +

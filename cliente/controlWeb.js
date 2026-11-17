@@ -73,9 +73,6 @@ function ControlWeb(){
                 '<span class="nav-user-role">' + this.escapar(usuario.rol) + '</span></span>' +
                 '<button class="btn btn-ghost btn-icon" id="navSalir" type="button" title="Cerrar sesión">' +
                 UI.icono("logout") + '<span class="d-none d-xl-inline">Salir</span></button></div>';
-        } else {
-            html += '<div class="nav-guest"><span>Acceso seguro con OAuth 2.0</span>' +
-                '<span class="status-live"><span class="status-dot"></span> En línea</span></div>';
         }
 
         html += '</div>';
@@ -102,18 +99,8 @@ function ControlWeb(){
 
     // --- Estructura común de las pantallas de acceso ---
     this.layoutAuth = function(opciones){
-        let puntos = (opciones.puntos || []).map(function(p){
-            return '<li>' + UI.icono(p.icono || "check") + '<span>' + p.texto + '</span></li>';
-        }).join("");
         return '<div class="auth-layout">' +
-            '<section class="auth-hero">' +
-            '<span class="eyebrow">' + UI.icono("route") + ' ProcesosSW</span>' +
-            '<h1>' + opciones.titulo + '</h1>' +
-            '<p class="hero-lead">' + opciones.texto + '</p>' +
-            '<ul class="hero-list">' + puntos + '</ul>' +
-            '</section>' +
-            '<section class="auth-panel">' + opciones.contenido +
-            '</section>' +
+            '<section class="auth-panel">' + opciones.contenido + '</section>' +
             '</div>';
     };
 
@@ -175,38 +162,33 @@ function ControlWeb(){
             '</div><div class="page-head-actions">' +
             '<button type="button" class="btn btn-ghost-danger btn-sm" id="homeEliminar">' + UI.icono("trash") + ' Eliminar cuenta</button>' +
             '</div></header>' +
-            '<div class="feature-grid">' +
-            '<article class="feature-card feature-card-game">' +
-            '<span class="feature-icon">' + UI.icono("gamepad") + '</span>' +
-            '<h3>Maze Duel</h3>' +
-            '<p>Programa tu robot y llega a la salida antes que tu rival.</p>' +
+            '<div class="dashboard-actions">' +
+            '<article class="action-row action-row-primary">' +
+            '<span class="action-icon">' + UI.icono("gamepad") + '</span>' +
+            '<div class="action-copy"><h3>Maze Duel</h3><p>Programa tu robot y llega a la salida antes que tu rival.</p></div>' +
             '<button type="button" id="homeJuego" class="btn btn-primary">Entrar al lobby ' + UI.icono("arrow-right") + '</button>' +
             '</article>';
 
         if (esAdmin){
-            html += '<article class="feature-card">' +
-                '<span class="feature-icon">' + UI.icono("users") + '</span>' +
-                '<h3>Usuarios</h3>' +
-                '<p>Consulta y filtra las cuentas registradas.</p>' +
+            html += '<article class="action-row">' +
+                '<span class="action-icon">' + UI.icono("users") + '</span>' +
+                '<div class="action-copy"><h3>Usuarios</h3><p>Consulta y filtra las cuentas registradas.</p></div>' +
                 '<button type="button" id="homeUsuarios" class="btn btn-secondary">Ver usuarios ' + UI.icono("arrow-right") + '</button>' +
                 '</article>' +
-                '<article class="feature-card">' +
-                '<span class="feature-icon">' + UI.icono("activity") + '</span>' +
-                '<h3>Estado de cuenta</h3>' +
-                '<p>Comprueba si una cuenta sigue activa.</p>' +
+                '<article class="action-row">' +
+                '<span class="action-icon">' + UI.icono("activity") + '</span>' +
+                '<div class="action-copy"><h3>Estado de cuenta</h3><p>Comprueba si una cuenta sigue activa.</p></div>' +
                 '<button type="button" id="homeActivo" class="btn btn-secondary">Comprobar ' + UI.icono("arrow-right") + '</button>' +
                 '</article>';
         } else {
-            html += '<article class="feature-card">' +
-                '<span class="feature-icon">' + UI.icono("shield") + '</span>' +
-                '<h3>Cuenta</h3>' +
-                '<p>Gestiona el acceso y la seguridad de tu cuenta.</p>' +
+            html += '<article class="action-row">' +
+                '<span class="action-icon">' + UI.icono("shield") + '</span>' +
+                '<div class="action-copy"><h3>Cuenta</h3><p>Gestiona el acceso y la seguridad de tu cuenta.</p></div>' +
                 '<button type="button" id="homeEliminar2" class="btn btn-secondary">Gestionar cuenta ' + UI.icono("arrow-right") + '</button>' +
                 '</article>' +
-                '<article class="feature-card">' +
-                '<span class="feature-icon">' + UI.icono("sparkles") + '</span>' +
-                '<h3>Sesión</h3>' +
-                '<p>Cierra la sesión cuando termines.</p>' +
+                '<article class="action-row">' +
+                '<span class="action-icon">' + UI.icono("sparkles") + '</span>' +
+                '<div class="action-copy"><h3>Sesión</h3><p>Cierra la sesión cuando termines.</p></div>' +
                 '<button type="button" id="homeSalir" class="btn btn-secondary">Cerrar sesión ' + UI.icono("logout") + '</button>' +
                 '</article>';
         }
@@ -243,8 +225,6 @@ function ControlWeb(){
             '<div class="field"><label for="password">Contraseña</label>' +
             '<div class="field-control"><span class="field-icon">' + UI.icono("lock") + '</span>' +
             '<input type="password" class="form-control" id="password" placeholder="Tu contraseña" autocomplete="current-password" required></div></div>' +
-            '<div class="auth-row"><span class="secure-note">' + UI.icono("shield") + ' Sesión protegida</span>' +
-            '<span class="secure-note">' + UI.icono("mail") + ' OAuth 2.0</span></div>' +
             '<button id="btnLogin" type="submit" class="btn btn-primary btn-lg btn-block">Entrar ' + UI.icono("arrow-right") + '</button>' +
             '</form>' +
             '<div class="divider">o continúa con</div>' +
@@ -252,15 +232,7 @@ function ControlWeb(){
             '<p class="auth-switch">¿No tienes cuenta? <button type="button" id="btnIrRegistro" class="link-button">Crear una cuenta</button></p>' +
             '</div>';
 
-        $("#contenido").html(this.layoutAuth({
-            titulo: 'Tu laboratorio de <span class="gradient-text">arquitectura SaaS</span>',
-            texto: 'Una aplicación en capas con OAuth 2.0, Google One Tap, confirmación por correo y un juego multijugador en tiempo real.',
-            puntos: [
-                { icono: "shield", texto: "Autenticación local y con Google sobre la misma sesión segura." },
-                { icono: "gamepad", texto: "Maze Duel: programa robots con bloques y compite en vivo." }
-            ],
-            contenido: contenido
-        }));
+        $("#contenido").html(this.layoutAuth({ contenido: contenido }));
 
         let self = this;
         $("#formLogin").on("submit", function(e){
@@ -367,16 +339,7 @@ function ControlWeb(){
             '<p class="auth-switch">¿Ya tienes cuenta? <button type="button" id="btnIrLogin" class="link-button">Iniciar sesión</button></p>' +
             '</div>';
 
-        $("#contenido").html(this.layoutAuth({
-            titulo: 'Crea tu cuenta y <span class="gradient-text">empieza a jugar</span>',
-            texto: 'El registro local se confirma por correo. También puedes entrar directamente con Google y saltarte el formulario.',
-            puntos: [
-                { icono: "mail", texto: "Enlace de confirmación de un solo uso, válido durante 24 horas." },
-                { icono: "lock", texto: "Contraseña cifrada con bcrypt; nunca se guarda en claro." },
-                { icono: "gamepad", texto: "Acceso inmediato a Maze Duel después de confirmar la cuenta." }
-            ],
-            contenido: contenido
-        }));
+        $("#contenido").html(this.layoutAuth({ contenido: contenido }));
 
         let self = this;
         $("#password").on("input", function(){
@@ -425,16 +388,7 @@ function ControlWeb(){
             '<button id="btnIrLoginTrasRegistro" type="button" class="btn btn-primary btn-block">Ir a iniciar sesión ' + UI.icono("arrow-right") + '</button>' +
             '</div>';
 
-        $("#contenido").html(this.layoutAuth({
-            titulo: 'Un último paso para <span class="gradient-text">entrar</span>',
-            texto: 'La confirmación por correo demuestra que el buzón es tuyo y evita que alguien use un email ajeno.',
-            puntos: [
-                { icono: "clock", texto: "El enlace caduca a las 24 horas y solo se puede usar una vez." },
-                { icono: "shield", texto: "Hasta confirmar la cuenta, el inicio de sesión permanece bloqueado." },
-                { icono: "check", texto: "Después podrás jugar a Maze Duel con tu cuenta." }
-            ],
-            contenido: contenido
-        }));
+        $("#contenido").html(this.layoutAuth({ contenido: contenido }));
 
         let self = this;
         $("#btnIrLoginTrasRegistro").on("click", function(){ self.mostrarLogin(); });
@@ -447,12 +401,12 @@ function ControlWeb(){
 
         let html = '<div class="page">' +
             '<header class="page-head"><div><span class="eyebrow">' + UI.icono("users") + ' Administración</span>' +
-            '<h1>Usuarios</h1><p>Consulta las cuentas registradas, su rol y su estado. Los cambios de estado se aplican en el servidor.</p></div>' +
+            '<h1>Usuarios</h1><p>Cuentas registradas, su rol y su estado.</p></div>' +
             '<div class="page-head-actions"><span class="count-pill" id="contadorUsuarios">—</span>' +
             '<button type="button" id="btnRefrescarUsuarios" class="btn btn-secondary btn-sm">' + UI.icono("refresh") + ' Actualizar</button></div></header>' +
             '<section class="panel"><div class="panel-toolbar">' +
             '<div class="search-box">' + UI.icono("users") + '<input type="search" id="filtroUsuarios" class="form-control" placeholder="Buscar por email, rol o estado..."></div>' +
-            '<span class="info-chip">' + UI.icono("shield") + ' Solo administrador</span></div>' +
+            '</div>' +
             '<div id="lista"></div></section></div>';
 
         $("#contenido").html(html);
@@ -505,7 +459,7 @@ function ControlWeb(){
 
         let html = '<div class="form-page"><header class="page-head"><div>' +
             '<span class="eyebrow">' + UI.icono("activity") + ' Administración</span>' +
-            '<h1>¿Está activo?</h1><p>Comprueba si una cuenta puede seguir usando la aplicación. Una cuenta eliminada o pendiente no está activa.</p>' +
+            '<h1>¿Está activo?</h1><p>Comprueba si una cuenta puede iniciar sesión.</p>' +
             '</div></header><section class="panel">' +
             '<form id="formActivo" class="auth-form">' +
             '<div class="field"><label for="emailActivo">Email del usuario</label>' +
@@ -544,7 +498,7 @@ function ControlWeb(){
         let propio = this.usuario ? this.usuario.email : "";
         let html = '<div class="form-page"><header class="page-head"><div>' +
             '<span class="eyebrow">' + UI.icono("trash") + ' Cuenta</span>' +
-            '<h1>Eliminar usuario</h1><p>El borrado es lógico: la cuenta se conserva para impedir el acceso, pero puede reactivarse entrando de nuevo con Google.</p>' +
+            '<h1>Eliminar usuario</h1><p>La cuenta dejará de poder iniciar sesión.</p>' +
             '</div></header><section class="panel danger-zone">' +
             '<div class="panel-head"><h2>Confirmar eliminación</h2><span class="status-pill status-eliminado">Irreversible desde la interfaz</span></div>' +
             '<div class="danger-note">' + UI.icono("alert-triangle") +

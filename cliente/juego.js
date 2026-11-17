@@ -204,15 +204,13 @@ JuegoWeb.prototype.mostrarLobby = function(){
     let html = '<div class="lobby">' +
         '<header class="page-head lobby-head">' +
         '<div>' +
-        '<span class="eyebrow">' + iconoSVG("gamepad") + ' Maze Duel · 1 vs 1</span>' +
         '<h1>Game lobby</h1>' +
         '<p>Create a room or join an open game.</p>' +
         '</div></header>' +
 
         '<div class="lobby-grid">' +
         '<section class="panel create-panel">' +
-        '<div class="panel-head"><div><h2>Create a game</h2><p>Pick a map size and open a room.</p></div>' +
-        '<span class="chip">' + iconoSVG("users") + ' 1v1</span></div>' +
+        '<div class="panel-head"><div><h2>Create a game</h2></div></div>' +
         '<div class="form-group"><label for="dificultad">Map size</label>' +
         '<select id="dificultad" class="form-control">' + opciones + '</select></div>' +
         '<div class="map-preview" id="mapPreview">' +
@@ -224,7 +222,7 @@ JuegoWeb.prototype.mostrarLobby = function(){
         '<button id="btnRefrescar" class="btn btn-secondary" type="button">' + iconoSVG("refresh") + ' Refresh</button>' +
         '</div></section>' +
         '<section class="panel">' +
-        '<div class="panel-head"><div><h2>Open games</h2><p>Join a room or continue your match.</p></div>' +
+        '<div class="panel-head"><div><h2>Open games</h2></div>' +
         '<span class="count-pill" id="contadorPartidas">—</span></div>' +
         '<div id="listaPartidas" class="game-list"></div>' +
         '</section></div></div>';
@@ -267,8 +265,7 @@ JuegoWeb.prototype.actualizarListaPartidas = function(lista){
         html += '<div class="game-card-head"><span class="game-id">#' + escapar(p.id) + '</span>' +
             '<span class="status-pill status-' + escapar(estado) + '">' + iconoSVG(estadoIcono) + ' ' + escapar(estadoTexto) + '</span></div>';
         html += '<h3>' + escapar(nombreNivel(nivel)) + ' maze</h3>';
-        html += '<div class="game-meta">Map <strong>' + (nivel.filas || "?") + '×' + (nivel.columnas || "?") +
-            '</strong> · Creator <strong>' + escapar(p.creador) + '</strong></div>';
+        html += '<div class="game-meta"><strong>' + (nivel.filas || "?") + '×' + (nivel.columnas || "?") + '</strong></div>';
 
         html += '<div class="game-players">';
         p.jugadores.forEach(function(email, i){
@@ -340,7 +337,7 @@ JuegoWeb.prototype.abrirEditor = function(partida){
         '<section class="panel">' +
         '<div class="panel-head"><h2>Blocks</h2><span class="chip" id="contadorBloques">0 / ' + L.LIMITES.bloques + '</span></div>' +
         '<div id="paleta" class="palette">' + paleta + '</div>' +
-        '<p class="palette-tip">Drag or click a block to add it. Use repeat, while and if/else to nest blocks.</p>' +
+        '' +
         '</section>' +
 
         '<section class="panel">' +

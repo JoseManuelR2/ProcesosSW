@@ -58,9 +58,8 @@ function ControlWeb(){
         if (usuario){
             if (usuario.rol === "administrador"){
                 html += '<li class="nav-item"><a class="nav-link" href="#" id="navUsuarios">' + UI.icono("users") + ' Usuarios</a></li>';
-                html += '<li class="nav-item"><a class="nav-link" href="#" id="navActivo">' + UI.icono("activity") + ' ¿Activo?</a></li>';
             }
-            html += '<li class="nav-item"><a class="nav-link" href="#" id="navJuego">' + UI.icono("gamepad") + ' Maze Duel</a></li>';
+            html += '<li class="nav-item"><a class="nav-link" href="#" id="navJuego">' + UI.icono("gamepad") + ' Lobby</a></li>';
             html += '<li class="nav-item"><a class="nav-link" href="#" id="navEliminar">' + UI.icono("trash") + ' Eliminar cuenta</a></li>';
         }
 
@@ -84,7 +83,6 @@ function ControlWeb(){
             if (self.usuario){ self.mostrarInicio(); } else { self.mostrarLogin(); }
         });
         $("#navUsuarios").on("click", function(e){ e.preventDefault(); self.cerrarMenu(); self.mostrarListarUsuarios(); });
-        $("#navActivo").on("click", function(e){ e.preventDefault(); self.cerrarMenu(); self.mostrarUsuarioActivo(); });
         $(document).off("click.navJuego").on("click.navJuego", "#navJuego", function(e){
             e.preventDefault();
             self.cerrarMenu();
@@ -144,68 +142,12 @@ function ControlWeb(){
         );
     };
 
-    // --- Panel principal ---
+    // --- Inicio: se entra directamente al lobby ---
     this.mostrarInicio = function(){
         this.limpiarMensaje();
         this.mostrarBarra(this.usuario);
-        this.marcarNav(null);
-
-        let esAdmin = this.usuario.rol === "administrador";
-        let nombre = String(this.usuario.email).split("@")[0];
-        nombre = nombre.charAt(0).toUpperCase() + nombre.slice(1);
-
-        let html = '<div class="dashboard">' +
-            '<header class="page-head"><div>' +
-            '<h1>Panel</h1>' +
-            '</div><div class="page-head-actions">' +
-            '<button type="button" class="btn btn-ghost-danger btn-sm" id="homeEliminar">' + UI.icono("trash") + ' Eliminar cuenta</button>' +
-            '</div></header>' +
-            '<div class="dashboard-actions">' +
-            '<article class="action-row action-row-primary">' +
-            '<span class="action-icon">' + UI.icono("gamepad") + '</span>' +
-            '<div class="action-copy"><h3>Maze Duel</h3></div>' +
-            '<button type="button" id="homeJuego" class="btn btn-primary">Entrar al lobby ' + UI.icono("arrow-right") + '</button>' +
-            '</article>';
-
-        if (esAdmin){
-            html += '<article class="action-row">' +
-                '<span class="action-icon">' + UI.icono("users") + '</span>' +
-                '<div class="action-copy"><h3>Usuarios</h3></div>' +
-                '<button type="button" id="homeUsuarios" class="btn btn-secondary">Ver usuarios ' + UI.icono("arrow-right") + '</button>' +
-                '</article>' +
-                '<article class="action-row">' +
-                '<span class="action-icon">' + UI.icono("activity") + '</span>' +
-                '<div class="action-copy"><h3>Estado de cuenta</h3></div>' +
-                '<button type="button" id="homeActivo" class="btn btn-secondary">Comprobar ' + UI.icono("arrow-right") + '</button>' +
-                '</article>';
-        } else {
-            html += '<article class="action-row">' +
-                '<span class="action-icon">' + UI.icono("shield") + '</span>' +
-                '<div class="action-copy"><h3>Cuenta</h3></div>' +
-                '<button type="button" id="homeEliminar2" class="btn btn-secondary">Gestionar cuenta ' + UI.icono("arrow-right") + '</button>' +
-                '</article>' +
-                '<article class="action-row">' +
-                '<span class="action-icon">' + UI.icono("sparkles") + '</span>' +
-                '<div class="action-copy"><h3>Sesión</h3></div>' +
-                '<button type="button" id="homeSalir" class="btn btn-secondary">Cerrar sesión ' + UI.icono("logout") + '</button>' +
-                '</article>';
-        }
-
-        html += '</div></div>';
-
-        $("#contenido").html(html);
-
-        let self = this;
-        $("#homeJuego").on("click", function(){
-            if (window.juegoWeb){
-                window.juegoWeb.mostrarLobby();
-                window.juegoWeb.socket.emit("solicitarLista");
-            }
-        });
-        $("#homeUsuarios").on("click", function(){ self.mostrarListarUsuarios(); });
-        $("#homeActivo").on("click", function(){ self.mostrarUsuarioActivo(); });
-        $("#homeEliminar, #homeEliminar2").on("click", function(){ self.mostrarEliminarUsuario(); });
-        $("#homeSalir").on("click", function(){ self.cerrarSesion(); });
+        this.marcarNav("navJuego");
+        if (window.juegoWeb){ window.juegoWeb.mostrarLobby(); }
     };
 
     // --- Inicio de sesión ---
@@ -448,44 +390,6 @@ function ControlWeb(){
             });
         });
         cargar();
-    };
-
-    // --- Comprobar si un usuario está activo (solo administrador) ---
-    this.mostrarUsuarioActivo = function(){
-        this.limpiarMensaje();
-        this.marcarNav("navActivo");
-
-        let html = '<div class="form-page"><header class="page-head"><div>' +
-            '<span class="eyebrow">' + UI.icono("activity") + ' Administración</span>' +
-            '<h1>¿Está activo?</h1><p>Comprueba si una cuenta puede iniciar sesión.</p>' +
-            '</div></header><section class="panel">' +
-            '<form id="formActivo" class="auth-form">' +
-            '<div class="field"><label for="emailActivo">Email del usuario</label>' +
-            '<div class="field-control"><span class="field-icon">' + UI.icono("mail") + '</span>' +
-            '<input type="email" class="form-control" id="emailActivo" placeholder="usuario@email.com" required></div></div>' +
-            '<button id="btnActivo" type="submit" class="btn btn-primary">' + UI.icono("activity") + ' Comprobar estado</button>' +
-            '</form><div id="resultado" class="result-box d-none"></div></section></div>';
-
-        $("#contenido").html(html);
-
-        let self = this;
-        $("#formActivo").on("submit", function(e){
-            e.preventDefault();
-            let email = String($("#emailActivo").val() || "").trim();
-            if (!email){ self.mostrarMensaje("Introduce el email de la cuenta", "warning"); return; }
-            rest.usuarioActivo(email, function(data){
-                let activo = data.activo === true;
-                $("#resultado")
-                    .attr("class", "result-box " + (activo ? "ok" : "no"))
-                    .html('<span class="result-box-icon">' + UI.icono(activo ? "check" : "x") + '</span>' +
-                        '<div><strong>' + (activo ? "La cuenta está activa" : "La cuenta no está activa") + '</strong>' +
-                        '<span>' + self.escapar(email) + '</span></div>')
-                    .removeClass("d-none");
-            }, function(mensaje){
-                $("#resultado").addClass("d-none");
-                self.mostrarMensaje(mensaje, "danger");
-            });
-        });
     };
 
     // --- Eliminar usuario (administrador a cualquiera; usuario, su propia cuenta) ---

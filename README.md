@@ -15,7 +15,7 @@ residen en el servidor; el cliente solo se comunica mediante una API REST.
 | Nodemailer | Correo de confirmación | Envío por SMTP autenticado (Gmail con contraseña de aplicación o un servicio transaccional); los proveedores cloud suelen bloquear SMTP directo, así que se usa un servicio con cuenta. |
 | express-session | Sesión de usuario | Sesión en el servidor con cookie; el cierre de sesión es inmediato y muy fácil de explicar. |
 | bcryptjs | Hash de contraseñas | Nunca se guarda la contraseña en claro; bcryptjs es puro JavaScript (sin compilación nativa). |
-| Bootstrap 4 + jQuery | Interfaz de cliente | Interfaz responsive y llamadas AJAX sencillas; el foco del proyecto es la arquitectura, no el diseño. |
+| Bootstrap 4 + jQuery | Interfaz de cliente | Rejilla responsive y llamadas AJAX sencillas; la identidad visual propia (tema oscuro, componentes y SVG) vive en `cliente/estilos.css` y `cliente/ui.js`. |
 | Jasmine | Pruebas unitarias | Framework de pruebas automatizadas; las pruebas de la capa lógica no necesitan base de datos. |
 | Socket.IO | WebSockets (sprint 2) | Comunicación en tiempo real para el juego Maze Duel: partidas, programación y ejecución. |
 | GitHub Actions | CI/CD | Integración y despliegue continuos documentados y versionados en el propio repositorio. |
@@ -104,6 +104,9 @@ servidor/
   socketsSpec.js               Pruebas de integración con Socket.IO y sesiones reales
 cliente/
   index.html                   Página única (SPA)
+  estilos.css                  Sistema visual (tema oscuro, componentes y responsive)
+  ui.js                        Utilidades visuales compartidas (iconos SVG, avatares, mini laberinto)
+  favicon.svg                  Icono de la aplicación
   arranque.js                  Creación de las capas y comprobación de sesión
   clienteRest.js               Capa de comunicación (AJAX)
   controlWeb.js                Capa de presentación (GUI)

@@ -3,51 +3,30 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ProcesosSW</title>
+  <meta name="description" content="ProcesosSW: arquitectura SaaS en capas, OAuth con Google y Maze Duel en tiempo real.">
+  <meta name="theme-color" content="#070b18">
+  <title>ProcesosSW · Arquitectura SaaS y Maze Duel</title>
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml">
   <!-- Bootstrap 4 (CSS, CDN con integridad SRI) -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css"
         integrity="sha384-xOolHFLEh07PJGoPkLv1IbcEPTNtaed2xpHsD9ESMhqIYd0nLMwNLD69Npy4HI+N" crossorigin="anonymous">
-  <style>
-    .maze-grid { display: grid; gap: 2px; margin: 10px 0; }
-    .maze-cell { border-radius: 3px; background: #e9ecef; text-align: center; font-weight: bold; user-select: none; overflow: hidden; }
-    .maze-wall { background: #343a40; }
-    .maze-exit { background: #28a745; }
-    .maze-p1 { background: #007bff; box-shadow: 0 0 0 2px #0056b3; }
-    .maze-p2 { background: #dc3545; box-shadow: 0 0 0 2px #a71d2a; }
-    .maze-path { background: #ffc107; }
-    .maze-hielo { background: #bfefff; color: #0a6e8a; }
-    .maze-trampa { background: #f4c7a1; color: #8b2d00; }
-    .maze-teleport { background: #e2d4ff; color: #5b2d8e; }
-    .maze-arrow { background: #d9f2d9; color: #1d6b1d; }
-    .maze-start { background: #cce5ff; box-shadow: inset 0 0 0 3px #007bff; }
-    .maze-start2 { background: #f8d7da; box-shadow: inset 0 0 0 3px #dc3545; }
-    .maze-current { box-shadow: 0 0 0 3px #ff0; z-index: 1; }
-    .maze-p1, .maze-p2 { color: #fff; }
-    .block { display: block; padding: 6px 12px; margin: 3px 0; border-radius: 6px; color: white; font-weight: bold; cursor: grab; user-select: none; }
-    .block-label { margin-right: 4px; }
-    .block-param { border: none; border-radius: 3px; padding: 2px 4px; font-size: 0.85rem; }
-    .block-del { background: rgba(0,0,0,0.2); border: none; color: white; border-radius: 3px; padding: 0 6px; cursor: pointer; font-size: 0.8rem; margin-left: 4px; }
-    .block-del:hover { background: rgba(0,0,0,0.4); }
-    .block-children { min-height: 16px; margin-top: 4px; }
-    .block-palette { display: inline-block; padding: 6px 12px; margin: 3px; border-radius: 6px; color: white; font-weight: bold; cursor: grab; user-select: none; }
-    .block-palette:hover { opacity: 0.8; transform: scale(1.05); }
-    .block-placeholder { color: #aaa; font-size: 0.8rem; font-style: italic; padding: 4px; }
-    .block-not { border: none; border-radius: 4px; width: 22px; height: 22px; padding: 0; font-weight: bold; line-height: 1; color: #343a40; background: #ffffff; cursor: pointer; box-shadow: 0 0 0 1px rgba(0,0,0,0.25); }
-    .block-not.active { background: #343a40; color: #ffffff; }
-    #workspace { min-height: 200px; }
-    .drop-zone-activa { background: #e8f4fd !important; }
-  </style>
+  <!-- Identidad visual propia (se carga después para poder sobrescribir Bootstrap) -->
+  <link rel="stylesheet" href="./estilos.css">
 </head>
 <body>
 
   <!-- Barra de navegación (se rellena dinámicamente según la sesión) -->
-  <nav id="barra" class="navbar navbar-expand-sm bg-dark navbar-dark"></nav>
+  <nav id="barra" class="navbar navbar-expand-lg navbar-dark app-nav"></nav>
 
-  <div class="container-fluid">
-    <div id="mensaje" class="alert alert-info d-none mt-3"></div>
+  <main class="app-shell">
+    <div id="mensaje" class="app-alert d-none"></div>
     <!-- Punto de inyección de los componentes de visualización -->
     <div id="contenido"></div>
-  </div>
+  </main>
+
+  <footer class="app-footer">
+    ProcesosSW · Arquitectura SaaS en capas · OAuth 2.0 y Google One Tap · Maze Duel en tiempo real
+  </footer>
 
   <!-- jQuery y Bootstrap JS (el bundle incluye Popper), con integridad SRI -->
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"
@@ -58,6 +37,9 @@
 
   <!-- Núcleo del juego compartido con el servidor (reglas del laberinto) -->
   <script src="/compartido/laberinto.js"></script>
+
+  <!-- Utilidades visuales compartidas (iconos SVG, avatares y mini laberinto) -->
+  <script src="./ui.js"></script>
 
   <!-- Capa de comunicación y capa de presentación (separadas) -->
   <script src="./clienteRest.js"></script>

@@ -3,13 +3,14 @@
 // /compartido/laberinto.js (global Laberinto), la misma librería que usa el servidor.
 
 const L = window.Laberinto;
+const UIJ = window.UI;
 
 const BLOQUES = [
-    { tipo: "mv", etiqueta: "move", color: "#4C97FF", param: "right" },
-    { tipo: "repeat", etiqueta: "repeat", color: "#FFAB19", contenedor: true, param: 3 },
-    { tipo: "while", etiqueta: "while", color: "#FFAB19", contenedor: true, param: "exit visible" },
-    { tipo: "if", etiqueta: "if", color: "#FF8C1A", contenedor: true, param: "wall" },
-    { tipo: "ifelse", etiqueta: "if/else", color: "#FF8C1A", contenedor: true, param: "wall", conElse: true }
+    { tipo: "mv", etiqueta: "move", color: "#4C97FF", param: "right", icono: "arrow-right" },
+    { tipo: "repeat", etiqueta: "repeat", color: "#FFAB19", contenedor: true, param: 3, icono: "repeat" },
+    { tipo: "while", etiqueta: "while", color: "#FFAB19", contenedor: true, param: "exit visible", icono: "refresh" },
+    { tipo: "if", etiqueta: "if", color: "#FF8C1A", contenedor: true, param: "wall", icono: "branch" },
+    { tipo: "ifelse", etiqueta: "if/else", color: "#FF8C1A", contenedor: true, param: "wall", conElse: true, icono: "split" }
 ];
 
 const DIRECCIONES = Object.keys(L.DIRECCIONES);
@@ -24,6 +25,43 @@ function escapar(texto){
     return String(texto).replace(/[&<>"']/g, function(c){
         return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
     });
+}
+
+function iconoSVG(nombre, clase){
+    return UIJ ? UIJ.icono(nombre, clase) : "";
+}
+
+function avatarSVG(email, clase){
+    return UIJ ? UIJ.avatar(email, clase) : "";
+}
+
+// El servidor devuelve el motivo en español; las pantallas del juego están en inglés.
+function traducirRazon(razon){
+    let texto = String(razon || "");
+    if (texto.indexOf("empate") !== -1){ return "Both robots tied"; }
+    if (texto.indexOf("más cerca") !== -1){ return "Closest robot to the exit"; }
+    if (texto.indexOf("llegó") !== -1){ return "First robot to reach the exit"; }
+    return texto;
+}
+
+// Los niveles se generan con un nombre tipo "Random 15×15"; en la interfaz
+// preferimos la dificultad ("Small", "Medium", "Large").
+function nombreNivel(nivel){
+    let d = nivel && L.DIFICULTADES[nivel.dificultad];
+    return d ? d.nombre : ((nivel && nivel.nombre) || "Maze");
+}
+
+function leyendaTablero(){
+    return '<div class="maze-legend">' +
+        '<span class="legend-item"><span class="legend-swatch" style="background:linear-gradient(135deg,#2563eb,#60a5fa);"></span>You</span>' +
+        '<span class="legend-item"><span class="legend-swatch" style="background:linear-gradient(135deg,#e11d48,#fb7185);"></span>Rival</span>' +
+        '<span class="legend-item"><span class="legend-swatch" style="background:linear-gradient(135deg,#059669,#34d399);"></span>Exit</span>' +
+        '<span class="legend-item"><span class="legend-swatch" style="background:#263453;"></span>Wall</span>' +
+        '<span class="legend-item"><span class="legend-swatch" style="background:linear-gradient(135deg,#0e7490,#22d3ee);"></span>Ice</span>' +
+        '<span class="legend-item"><span class="legend-swatch" style="background:linear-gradient(135deg,#b45309,#f59e0b);"></span>Trap</span>' +
+        '<span class="legend-item"><span class="legend-swatch" style="background:linear-gradient(135deg,#6d28d9,#a78bfa);"></span>Teleport</span>' +
+        '<span class="legend-item"><span class="legend-swatch" style="background:linear-gradient(135deg,#4d7c0f,#a3e635);"></span>Arrow</span>' +
+        '</div>';
 }
 
 function JuegoWeb(cw, socket){
@@ -50,8 +88,19 @@ JuegoWeb.prototype.registrarEventos = function(){
         .on("click", ".btn-cancelar", function(){ self.socket.emit("cancelarPartida", { id: $(this).data("id") }); })
         .on("click", "#btnProbar", function(){ self.probarPrograma(); })
         .on("click", "#btnEnviar", function(){ self.enviarPrograma(); })
-        .on("click", "#btnLimpiar", function(){ self.workspace.children = []; self.renderWorkspace(); $("#previewLaberinto").empty(); })
+        .on("click", "#btnLimpiar", function(){
+            self.workspace.children = [];
+            self.renderWorkspace();
+            $("#previewLaberinto").empty();
+            $("#estadoPrograma").removeClass("success").empty();
+        })
         .on("click", "#btnVolverLobby", function(){ self.mostrarLobby(); self.socket.emit("solicitarLista"); })
+        .on("change", "#dificultad", function(){
+            let d = L.DIFICULTADES[$(this).val()] || L.DIFICULTADES.mediano;
+            $("#mapPreviewName").text(d.nombre + " maze");
+            $("#mapPreviewMeta").text(d.filas + "×" + d.columnas + " tiles · special tiles included");
+            $("#mapPreviewSize").text(d.filas + "×" + d.columnas);
+        })
         .on("click", ".block-del", function(e){
             e.stopPropagation();
             self.quitarBloque($(this).data("id"));
@@ -144,28 +193,69 @@ JuegoWeb.prototype.mostrarLobby = function(){
     this.vista = "lobby";
     this.partidaActual = null;
     this.cw.limpiarMensaje();
+    if (this.cw.marcarNav){ this.cw.marcarNav("navJuego"); }
+
     let opciones = Object.keys(L.DIFICULTADES).map(function(clave){
         let d = L.DIFICULTADES[clave];
         return '<option value="' + d.id + '"' + (d.id === "mediano" ? " selected" : "") + '>' +
             escapar(d.nombre) + ' (' + d.filas + '×' + d.columnas + ')</option>';
     }).join("");
-    let html = '<div class="card p-4 mt-3"><h4>Maze Duel</h4>';
-    html += '<p class="text-muted">Program your robot with blocks. First to reach the exit wins.</p>';
-    html += '<ul class="small text-muted">';
-    html += '<li>Tiles: ice ❄ slides your robot, trap ✖ sends it back to your start, teleport ◎ jumps to its pair, arrows ↑↓←→ only let you in if you move that way.</li>';
-    html += '<li>Every game has a new random maze. Bigger maps have more special tiles and a higher move limit.</li>';
-    html += '<li>Max 60 blocks per program.</li>';
-    html += '<li>The fastest robot to the exit wins. If nobody arrives, the closest one by path wins.</li>';
-    html += '<li>Same number of moves and arrival: draw.</li>';
-    html += '<li>After the first program is sent, the other player has 15 seconds. Otherwise their robot stays still.</li>';
-    html += '<li>If nobody joins your game within 30 seconds, a bot plays against you.</li>';
-    html += '</ul>';
-    html += '<div class="form-inline mb-2"><label class="mr-2" for="dificultad">Map size:</label>';
-    html += '<select id="dificultad" class="form-control mr-2">' + opciones + '</select>';
-    html += '<button id="btnCrearPartida" class="btn btn-primary mr-2">Create game</button>';
-    html += '<button id="btnRefrescar" class="btn btn-secondary">Refresh list</button></div>';
-    html += '<div id="listaPartidas" class="mt-3"></div>';
-    html += '</div>';
+
+    let reglas = [
+        { icono: "map", titulo: "Special tiles", texto: "Ice slides your robot on, traps send it back to the start, teleports jump across the maze and arrows only let you in one way." },
+        { icono: "sparkles", titulo: "Fresh maze", texto: "Every game generates a new random maze. Bigger maps have more special tiles and a higher move limit." },
+        { icono: "grid", titulo: "60-block limit", texto: "A program can hold up to 60 blocks and 4 nesting levels. Combine repeat, while and if/else to do more with less." },
+        { icono: "clock", titulo: "Time & bot", texto: "The second player has 15 seconds after the first program is sent. If nobody joins within 30 seconds, a bot takes the free slot." }
+    ].map(function(r){
+        return '<div class="rule-card"><span class="rule-icon">' + iconoSVG(r.icono) + '</span>' +
+            '<strong>' + r.titulo + '</strong><span class="rule-text">' + r.texto + '</span></div>';
+    }).join("");
+
+    let html = '<div class="lobby">' +
+        '<header class="lobby-hero">' +
+        '<div>' +
+        '<span class="eyebrow">' + iconoSVG("gamepad") + ' Maze Duel · 1 vs 1</span>' +
+        '<h1>Program your robot.<br><span class="gradient-text">Win the race.</span></h1>' +
+        '<p>Build a route with blocks and guide your robot through a fresh maze. Reach the exit before your rival, or beat the bot if nobody joins.</p>' +
+        '<div class="hero-badges">' +
+        '<span class="hero-badge-chip">' + iconoSVG("map") + ' New random maze every game</span>' +
+        '<span class="hero-badge-chip">' + iconoSVG("zap") + ' Live with Socket.IO</span>' +
+        '<span class="hero-badge-chip">' + iconoSVG("clock") + ' 15 s per round</span>' +
+        '</div></div>' +
+        '<div class="lobby-hero-art"><div class="hero-visual">' +
+        '<div class="hero-visual-bar"><span class="traffic red"></span><span class="traffic amber"></span><span class="traffic green"></span>' +
+        '<span class="hero-visual-title">' + iconoSVG("gamepad") + 'maze_duel.exe</span></div>' +
+        UIJ.miniLaberinto() +
+        '<div class="hero-visual-foot"><span>' + iconoSVG("robot") + ' player vs player</span><span>' + iconoSVG("flag") + ' reach the exit</span></div>' +
+        '</div></div></header>' +
+
+        '<div class="lobby-grid">' +
+        '<section class="panel create-panel">' +
+        '<div class="panel-head"><div><h2>Create a game</h2><p>Pick a map size and open a room.</p></div>' +
+        '<span class="chip">' + iconoSVG("users") + ' 1v1</span></div>' +
+        '<div class="form-group"><label for="dificultad">Map size</label>' +
+        '<select id="dificultad" class="form-control">' + opciones + '</select></div>' +
+        '<div class="map-preview" id="mapPreview">' +
+        '<span class="map-preview-icon">' + iconoSVG("grid") + '</span>' +
+        '<div><strong id="mapPreviewName">Medium maze</strong><span id="mapPreviewMeta">15×15 tiles · special tiles included</span></div>' +
+        '<span class="count-pill" id="mapPreviewSize">15×15</span></div>' +
+        '<div class="create-actions">' +
+        '<button id="btnCrearPartida" class="btn btn-primary btn-lg" type="button">' + iconoSVG("plus") + ' Create game</button>' +
+        '<button id="btnRefrescar" class="btn btn-secondary" type="button">' + iconoSVG("refresh") + ' Refresh</button>' +
+        '</div></section>' +
+        '<section class="panel">' +
+        '<div class="panel-head"><div><h2>Open games</h2><p>Join a room or continue your match.</p></div>' +
+        '<span class="count-pill" id="contadorPartidas">—</span></div>' +
+        '<div id="listaPartidas" class="game-list"></div>' +
+        '</section></div>' +
+
+        '<section class="panel rules-panel">' +
+        '<div class="panel-head"><div><h2>How to play</h2><p>Everything you need to know before your first move.</p></div>' +
+        '<span class="chip">' + iconoSVG("info") + ' Quick guide</span></div>' +
+        '<div class="rules-grid">' + reglas + '</div>' +
+        '<p class="rules-note">' + iconoSVG("trophy") + ' The fastest robot to the exit wins. If nobody arrives, the closest one by path wins. Same moves and arrival means a draw.</p>' +
+        '</section></div>';
+
     $("#contenido").html(html);
 };
 
@@ -180,32 +270,63 @@ JuegoWeb.prototype.crearPartida = function(){
 JuegoWeb.prototype.actualizarListaPartidas = function(lista){
     if (this.vista !== "lobby" || !this.usuario){ return; }
     let self = this;
-    let html = '<table class="table table-sm"><thead><tr><th>ID</th><th>Level</th><th>Creator</th><th>Players</th><th>Status</th><th></th></tr></thead><tbody>';
-    if (!lista || lista.length === 0){
-        html += '<tr><td colspan="6" class="text-muted">No games. Create one.</td></tr>';
+    let juegos = lista || [];
+
+    if ($("#contadorPartidas").length){
+        $("#contadorPartidas").text(juegos.length + (juegos.length === 1 ? " game" : " games"));
     }
-    (lista || []).forEach(function(p){
+
+    if (juegos.length === 0){
+        $("#listaPartidas").html('<div class="empty-state">' + iconoSVG("gamepad") +
+            '<strong>No open games yet</strong><span>Create the first room and invite a rival — or wait for the bot.</span></div>');
+        return;
+    }
+
+    let html = "";
+    juegos.forEach(function(p){
         let nivel = p.nivel || {};
+        let estado = String(p.estado || "");
         let soyParticipante = p.jugadores.indexOf(self.usuario.email) !== -1;
-        html += '<tr>';
-        html += '<td>' + escapar(p.id) + '</td>';
-        html += '<td>' + escapar(nivel.nombre || "?") + '</td>';
-        html += '<td>' + escapar(p.creador) + '</td>';
-        html += '<td>' + p.jugadores.map(escapar).join(", ") + '</td>';
-        html += '<td>' + escapar(p.estado) + '</td>';
-        html += '<td>';
-        if (p.estado === "esperando" && !soyParticipante){
-            html += '<button class="btn btn-sm btn-success btn-unirse" data-id="' + escapar(p.id) + '">Join</button> ';
+        let estadoTexto = { esperando: "waiting", programando: "programming", terminada: "finished" }[estado] || estado;
+        let estadoIcono = { esperando: "clock", programando: "robot", terminada: "flag" }[estado] || "info";
+
+        html += '<article class="game-card">';
+        html += '<div class="game-card-head"><span class="game-id">#' + escapar(p.id) + '</span>' +
+            '<span class="status-pill status-' + escapar(estado) + '">' + iconoSVG(estadoIcono) + ' ' + escapar(estadoTexto) + '</span></div>';
+        html += '<h3>' + escapar(nombreNivel(nivel)) + ' maze</h3>';
+        html += '<div class="game-meta">Map <strong>' + (nivel.filas || "?") + '×' + (nivel.columnas || "?") +
+            '</strong> · Creator <strong>' + escapar(p.creador) + '</strong></div>';
+
+        html += '<div class="game-players">';
+        p.jugadores.forEach(function(email, i){
+            let tu = email === self.usuario.email;
+            let bot = email === "bot@maze.local";
+            let claseAvatar = bot ? "avatar-bot" : (i === 0 ? "avatar-p1" : "avatar-p2");
+            html += '<span class="player-chip' + (tu ? " you" : "") + '">' +
+                avatarSVG(email, "avatar-sm " + claseAvatar) +
+                '<span class="player-email">' + escapar(bot ? "Bot" : email) + (tu ? " (you)" : "") + '</span></span>';
+        });
+        if (p.jugadores.length < 2 && estado === "esperando"){
+            html += '<span class="player-chip empty">' + avatarSVG("?", "avatar-sm") +
+                '<span class="player-email">Waiting for rival</span></span>';
         }
-        if (p.estado === "programando" && soyParticipante){
-            html += '<button class="btn btn-sm btn-primary btn-jugar" data-id="' + escapar(p.id) + '">Play</button> ';
+        html += '</div>';
+
+        html += '<div class="game-actions">';
+        if (estado === "esperando" && !soyParticipante){
+            html += '<button class="btn btn-success btn-unirse" type="button" data-id="' + escapar(p.id) + '">' +
+                iconoSVG("arrow-right") + ' Join game</button>';
+        }
+        if (estado === "programando" && soyParticipante){
+            html += '<button class="btn btn-primary btn-jugar" type="button" data-id="' + escapar(p.id) + '">' +
+                iconoSVG("play") + ' Play</button>';
         }
         if (self.esAdmin){
-            html += '<button class="btn btn-sm btn-danger btn-cancelar" data-id="' + escapar(p.id) + '">Cancel</button>';
+            html += '<button class="btn btn-ghost-danger btn-cancelar" type="button" data-id="' + escapar(p.id) + '">' +
+                iconoSVG("x") + ' Cancel</button>';
         }
-        html += '</td></tr>';
+        html += '</div></article>';
     });
-    html += '</tbody></table>';
     $("#listaPartidas").html(html);
 };
 
@@ -218,28 +339,59 @@ JuegoWeb.prototype.abrirEditor = function(partida){
     this.partidaActual = partida;
     this.vista = "editor";
     this.cw.limpiarMensaje();
-    let nivel = partida.nivel;
-    let html = '<div class="card p-4 mt-3"><h4>Game ' + escapar(partida.id) + ' · ' + escapar(nivel.nombre) + '</h4>';
-    html += '<p class="small text-muted mb-1">Seed ' + nivel.semilla + ' · ' + nivel.filas + '×' + nivel.columnas + ' · max ' + L.maximoPasos(nivel) + ' moves</p>';
-    html += '<p class="mb-1">' + this.textoIdentidad() + '</p>';
-    html += '<p id="estadoPartida" class="mb-2"></p>';
-    html += '<div class="row"><div class="col-md-3"><h6>Block palette (drag or click)</h6>';
-    html += '<div id="paleta" style="display:flex;flex-direction:column;gap:4px;">';
+    if (this.cw.marcarNav){ this.cw.marcarNav("navJuego"); }
+
+    let nivel = partida.nivel || {};
+    let indice = this.miIndice();
+    let paleta = "";
     BLOQUES.forEach(function(b){
-        html += '<div class="block-palette" draggable="true" data-tipo="' + b.tipo + '" style="background:' + b.color + ';">' + escapar(b.etiqueta) + '</div>';
+        paleta += '<div class="block-palette" draggable="true" data-tipo="' + b.tipo + '" style="background:' + b.color + ';" title="' + escapar(b.etiqueta) + '">' +
+            iconoSVG(b.icono || "grid") + '<span>' + escapar(b.etiqueta) + '</span></div>';
     });
-    html += '</div></div>';
-    html += '<div class="col-md-5"><h6>Your program</h6>';
-    html += '<div id="workspace" class="drop-zone" data-padre="' + RAIZ + '" data-lista="hijos" style="min-height:200px;border:2px dashed #ccc;padding:10px;background:#f8f9fa;border-radius:6px;"></div>';
-    html += '<div class="mt-2">';
-    html += '<button id="btnProbar" class="btn btn-info btn-sm">Test</button> ';
-    html += '<button id="btnEnviar" class="btn btn-success btn-sm ml-1">Send program</button> ';
-    html += '<button id="btnLimpiar" class="btn btn-danger btn-sm ml-1">Clear</button></div>';
-    html += '<p id="estadoPrograma" class="mt-2 small text-muted"></p>';
-    html += '<div id="timerDisplay" class="mt-1 text-warning font-weight-bold" style="display:none;"></div>';
-    html += '<div id="previewLaberinto" class="mt-2"></div></div>';
-    html += '<div class="col-md-4">' + this.renderizarLaberinto(nivel, { inicios: [this.miIndice()] }) + '</div>';
-    html += '</div></div>';
+
+    let html = '<div class="game-editor">' +
+        '<div class="game-topbar">' +
+        '<button id="btnVolverLobby" class="btn btn-ghost btn-icon" type="button">' + iconoSVG("arrow-left") + '<span>Lobby</span></button>' +
+        '<div class="game-title"><span class="eyebrow">' + iconoSVG("gamepad") + ' Maze Duel</span>' +
+        '<h1>Game <span class="game-id">#' + escapar(partida.id) + '</span></h1></div>' +
+        '<div class="game-chips">' +
+        '<span class="chip">' + iconoSVG("map") + ' ' + escapar(nombreNivel(nivel)) + '</span>' +
+        '<span class="chip">' + iconoSVG("grid") + ' ' + (nivel.filas || "?") + '×' + (nivel.columnas || "?") + '</span>' +
+        '<span class="chip">' + iconoSVG("flag") + ' Max ' + L.maximoPasos(nivel) + ' moves</span>' +
+        '<span class="chip">' + iconoSVG("zap") + ' Seed ' + escapar(nivel.semilla) + '</span>' +
+        '</div></div>' +
+
+        '<div id="identityBanner" class="identity-banner ' + (indice === 0 ? "identity-blue" : "identity-red") + '">' +
+        this.textoIdentidad() + '</div>' +
+        '<p id="estadoPartida" class="status-note" role="status"></p>' +
+
+        '<div class="editor-grid">' +
+        '<section class="panel">' +
+        '<div class="panel-head"><h2>Blocks</h2><span class="chip" id="contadorBloques">0 / ' + L.LIMITES.bloques + '</span></div>' +
+        '<div id="paleta" class="palette">' + paleta + '</div>' +
+        '<p class="palette-tip">Drag a block into the program or click it to append. Nest blocks inside repeat, while and if/else.</p>' +
+        '</section>' +
+
+        '<section class="panel">' +
+        '<div class="panel-head"><div><h2>Your program</h2><p>Build the route, test it, then send it.</p></div>' +
+        '<span class="chip" id="contadorPrograma">0 / ' + L.LIMITES.bloques + '</span></div>' +
+        '<div id="workspace" class="workspace drop-zone" data-padre="' + RAIZ + '" data-lista="hijos"></div>' +
+        '<div class="editor-actions">' +
+        '<button id="btnProbar" class="btn btn-info" type="button">' + iconoSVG("play") + ' Test</button>' +
+        '<button id="btnEnviar" class="btn btn-success" type="button">' + iconoSVG("send") + ' Send program</button>' +
+        '<button id="btnLimpiar" class="btn btn-ghost-danger" type="button">' + iconoSVG("trash") + ' Clear</button>' +
+        '</div>' +
+        '<p id="estadoPrograma" class="status-note" role="status"></p>' +
+        '<div id="timerDisplay" class="timer-pill" style="display:none;"></div>' +
+        '<div id="previewLaberinto" class="preview-panel"></div>' +
+        '</section>' +
+
+        '<section class="panel maze-panel">' +
+        '<div class="panel-head"><h2>Maze</h2><span class="chip">' + iconoSVG("flag") + ' Exit</span></div>' +
+        '<div class="maze-wrap">' + this.renderizarLaberinto(nivel, { inicios: [indice] }) + '</div>' +
+        leyendaTablero() +
+        '</section></div></div>';
+
     $("#contenido").html(html);
     this.renderWorkspace();
     this.actualizarEstadoEditor();
@@ -248,10 +400,10 @@ JuegoWeb.prototype.abrirEditor = function(partida){
 JuegoWeb.prototype.actualizarEstadoEditor = function(){
     let p = this.partidaActual;
     if (!p || this.vista !== "editor"){ return; }
-    let texto = p.estado === "esperando"
-        ? "Waiting for an opponent. If nobody joins within 30 seconds, a bot plays against you."
-        : "Program your robot and send it. The game ends when both programs are in (or when the 15 s timer ends).";
-    $("#estadoPartida").text(texto);
+    let esperando = p.estado === "esperando";
+    $("#estadoPartida").html(iconoSVG(esperando ? "clock" : "info") + ' ' + (esperando
+        ? "Waiting for an opponent… If nobody joins within 30 seconds, a bot takes the second slot."
+        : "Program your robot and send it. The round ends when both programs are in, or when the 15 s timer runs out."));
     $("#btnEnviar").prop("disabled", p.estado !== "programando");
 };
 
@@ -267,6 +419,20 @@ JuegoWeb.prototype.crearBloque = function(tipo){
 JuegoWeb.prototype.renderWorkspace = function(){
     $("#workspace").html(this.renderLista(this.workspace.children, RAIZ, "hijos"));
     $("#workspace").attr("data-padre", RAIZ).attr("data-lista", "hijos");
+    this.actualizarContadores();
+};
+
+JuegoWeb.prototype.contarBloques = function(lista){
+    let self = this;
+    return (lista || []).reduce(function(total, blk){
+        return total + 1 + self.contarBloques(blk.children) + self.contarBloques(blk.elseChildren || []);
+    }, 0);
+};
+
+JuegoWeb.prototype.actualizarContadores = function(){
+    let texto = this.contarBloques(this.workspace.children) + " / " + L.LIMITES.bloques;
+    if ($("#contadorPrograma").length){ $("#contadorPrograma").text(texto); }
+    if ($("#contadorBloques").length){ $("#contadorBloques").text(texto); }
 };
 
 JuegoWeb.prototype.renderLista = function(lista, padreId, nombreLista){
@@ -274,9 +440,10 @@ JuegoWeb.prototype.renderLista = function(lista, padreId, nombreLista){
     let html = "";
     lista.forEach(function(blk){ html += self.renderBloque(blk); });
     if (lista.length === 0 && padreId === RAIZ){
-        html += '<div class="text-muted small">Drag or click a block from the palette.</div>';
+        html += '<div class="workspace-empty">' + iconoSVG("grid") +
+            '<strong>Drop blocks here</strong><span>Drag from the palette or click a block to append it.</span></div>';
     } else if (lista.length === 0){
-        html += '<div class="block-placeholder">drop here</div>';
+        html += '<div class="block-placeholder">drop blocks here</div>';
     }
     return html;
 };
@@ -284,18 +451,19 @@ JuegoWeb.prototype.renderLista = function(lista, padreId, nombreLista){
 // Renderiza un bloque y, si es contenedor, las zonas donde se sueltan bloques dentro.
 JuegoWeb.prototype.renderBloque = function(blk){
     let pal = buscarPaleta(blk.tipo);
-    let html = '<div class="block-wrap" style="margin-left:0;">';
+    let html = '<div class="block-wrap">';
     html += '<div class="block" draggable="true" data-id="' + blk.id + '" style="background:' + pal.color + ';">';
-    html += '<span class="block-label">' + escapar(pal.etiqueta) + '</span> ';
+    html += iconoSVG(pal.icono || "grid");
+    html += '<span class="block-label">' + escapar(pal.etiqueta) + '</span>';
     html += this.renderParametro(blk);
-    html += ' <button class="block-del" data-id="' + blk.id + '">&times;</button></div>';
+    html += '<button type="button" class="block-del" data-id="' + blk.id + '" title="Delete block" aria-label="Delete block">&times;</button></div>';
     if (pal.contenedor){
-        html += '<div class="drop-zone block-children" data-padre="' + blk.id + '" data-lista="hijos" style="margin-left:20px;border-left:2px dashed #ccc;padding-left:8px;">';
+        html += '<div class="drop-zone block-children" data-padre="' + blk.id + '" data-lista="hijos">';
         html += this.renderLista(blk.children, blk.id, "hijos") + '</div>';
     }
     if (pal.conElse){
-        html += '<div class="block-else-label" style="margin-left:20px;font-size:0.8rem;color:#666;">else:</div>';
-        html += '<div class="drop-zone block-children" data-padre="' + blk.id + '" data-lista="otro" style="margin-left:20px;border-left:2px dashed #999;padding-left:8px;">';
+        html += '<div class="block-else-label">else</div>';
+        html += '<div class="drop-zone block-children" data-padre="' + blk.id + '" data-lista="otro">';
         html += this.renderLista(blk.elseChildren || [], blk.id, "otro") + '</div>';
     }
     return html + '</div>';
@@ -422,13 +590,13 @@ JuegoWeb.prototype.probarPrograma = function(){
     let programa = this.programa();
     let error = L.validar(programa);
     if (error){
-        $("#previewLaberinto").html('<p class="text-danger small">' + escapar(error) + '</p>');
+        $("#previewLaberinto").html('<p class="preview-note preview-error">' + iconoSVG("alert-triangle") + ' ' + escapar(error) + '</p>');
         return;
     }
     let indice = this.miIndice();
     let traza = L.trazar(nivel, nivel.inicios[indice], programa);
     if (traza.camino.length === 0){
-        $("#previewLaberinto").html('<p class="text-warning small">Your program does not move the robot.</p>');
+        $("#previewLaberinto").html('<p class="preview-note preview-warning">' + iconoSVG("info") + ' Your program does not move the robot.</p>');
         return;
     }
     let self = this;
@@ -443,12 +611,12 @@ JuegoWeb.prototype.probarPrograma = function(){
             camino: recorrido,
             actual: actual
         });
-        html += '<p class="small mt-1">Step ' + paso + '/' + traza.camino.length + '</p>';
+        html += '<p class="preview-caption">' + iconoSVG("play") + ' Step ' + paso + ' / ' + traza.camino.length + '</p>';
         if (paso >= traza.camino.length){
             self.detenerAnimacion();
             html += traza.llega
-                ? '<p class="text-success small">Reaches the exit!</p>'
-                : '<p class="text-warning small">Does not reach the exit.</p>';
+                ? '<p class="preview-note preview-success">' + iconoSVG("check") + ' Reaches the exit!</p>'
+                : '<p class="preview-note preview-warning">' + iconoSVG("flag") + ' Does not reach the exit.</p>';
         }
         $("#previewLaberinto").html(html);
     }, MS_PASO_ANIMACION);
@@ -472,7 +640,11 @@ JuegoWeb.prototype.enviarPrograma = function(){
 
 JuegoWeb.prototype.mostrarTemporizador = function(segundos){
     if (this.vista !== "editor"){ return; }
-    $("#timerDisplay").show().text("Time remaining: " + segundos + "s");
+    let urgente = Number(segundos) <= 5;
+    $("#timerDisplay")
+        .show()
+        .toggleClass("timer-urgent", urgente)
+        .html(iconoSVG("clock") + ' Time remaining: ' + escapar(segundos) + ' s');
 };
 
 // --- Partidas en tiempo real ---
@@ -494,7 +666,10 @@ JuegoWeb.prototype.recibirPartida = function(partida){
 
 JuegoWeb.prototype.mostrarProgramaAceptado = function(comandos){
     if (this.vista !== "editor"){ return; }
-    $("#estadoPrograma").text("Program accepted: the robot makes " + comandos + " moves. Waiting for the other player...");
+    $("#estadoPrograma")
+        .addClass("success")
+        .html(iconoSVG("check") + ' Program accepted: your robot will make ' + escapar(comandos) +
+            ' moves. Waiting for the other player…');
 };
 
 // --- Resultado ---
@@ -503,32 +678,68 @@ JuegoWeb.prototype.mostrarResultado = function(resultado){
     this.detenerAnimacion();
     this.vista = "resultado";
     this.cw.limpiarMensaje();
+    if (this.cw.marcarNav){ this.cw.marcarNav("navJuego"); }
+
     let self = this;
     let nivel = resultado.nivel;
     let jugadores = resultado.jugadores;
-    let miIndice = this.miIndice();
-    let html = '<div class="card p-4 mt-3"><h4>Result · ' + escapar(nivel.nombre) + '</h4>';
+    let miIndice = this.usuario ? jugadores.indexOf(this.usuario.email) : -1;
+    if (miIndice === -1){ miIndice = 0; }
 
-    if (!resultado.ganador){
-        html += '<p class="text-warning font-weight-bold">Draw</p>';
-    } else if (this.usuario && resultado.ganador === this.usuario.email){
-        html += '<p class="text-success font-weight-bold">You win!</p>';
-    } else {
-        html += '<p class="text-danger font-weight-bold">Winner: ' + escapar(resultado.ganador) + '</p>';
-    }
-    html += '<p>Reason: ' + escapar(resultado.razon) + '</p>';
-    html += '<p class="mb-1">Moves used:</p><ul>';
+    let empate = !resultado.ganador;
+    let gane = !empate && !!this.usuario && resultado.ganador === this.usuario.email;
+    let clase = empate ? "result-draw" : (gane ? "result-win" : "result-lose");
+    let iconoResultado = empate ? "flag" : (gane ? "trophy" : "x");
+    let titulo = empate ? "Draw" : (gane ? "You win!" : "You lose");
+    let subtitulo = empate
+        ? "Neither robot claimed the exit this time."
+        : (gane ? "Your robot crossed the line first." : "Your rival got there first this time.");
+
+    let html = '<div class="result-page">' +
+        '<header class="result-hero ' + clase + '">' +
+        '<div class="result-icon">' + iconoSVG(iconoResultado) + '</div>' +
+        '<span class="eyebrow">' + iconoSVG("flag") + ' Match result</span>' +
+        '<h1>' + titulo + '</h1>' +
+        '<p>' + subtitulo + '</p>' +
+        '<div class="hero-badges result-badges">' +
+        '<span class="hero-badge-chip">' + iconoSVG("map") + ' ' + escapar(nombreNivel(nivel)) + ' ' +
+        (nivel.filas || "?") + '×' + (nivel.columnas || "?") + '</span>' +
+        '<span class="hero-badge-chip">' + iconoSVG("info") + ' ' + escapar(traducirRazon(resultado.razon)) + '</span>' +
+        '</div></header>' +
+
+        '<div class="result-grid">' +
+        '<section class="panel">' +
+        '<div class="panel-head"><div><h2>Players</h2><p>Moves used before the round ended.</p></div>' +
+        '<span class="chip">' + iconoSVG("users") + ' ' + jugadores.length + ' players</span></div>' +
+        '<div class="score-list">';
+
     jugadores.forEach(function(email, i){
-        let color = i === 0 ? "blue" : "red";
-        let tu = i === miIndice ? " (you)" : "";
-        html += '<li><span style="color:' + color + ';font-weight:bold;">Player ' + (i + 1) + ' (' + color + ')</span>' +
-            escapar(tu) + ': ' + escapar(email) + ' · ' + resultado.comandos[email] + ' moves</li>';
+        let tu = i === miIndice;
+        let ganoEste = resultado.ganador === email;
+        let movimientos = resultado.comandos && resultado.comandos[email] !== undefined ? resultado.comandos[email] : 0;
+        html += '<div class="score-row' + (ganoEste ? " winner" : "") + '">' +
+            avatarSVG(email, "avatar-p" + (i + 1)) +
+            '<div class="score-main"><strong>' + escapar(email === "bot@maze.local" ? "Bot" : email) + (tu ? " (you)" : "") + '</strong>' +
+            '<span>Player ' + (i + 1) + ' · ' + (i === 0 ? "Blue" : "Red") + '</span></div>' +
+            '<span class="score-moves">' + iconoSVG("flag") + ' ' + escapar(movimientos) + ' moves</span></div>';
     });
-    html += '</ul>';
-    html += '<div id="tableroResultado">' + this.renderizarLaberinto(nivel, { inicios: [miIndice] }) + '</div>';
-    html += '<p class="small text-muted">Green = exit. Your start square is shown in ' + (miIndice === 0 ? "blue" : "red") + '.</p>';
-    html += '<button id="btnVolverLobby" class="btn btn-primary mt-2">Back to lobby</button>';
-    html += '</div>';
+
+    html += '</div>' +
+        '<div class="result-actions"><button id="btnVolverLobby" class="btn btn-primary btn-lg" type="button">' +
+        iconoSVG("arrow-left") + ' Back to lobby</button></div>' +
+        '</section>' +
+
+        '<section class="panel">' +
+        '<div class="panel-head"><div><h2>Final board</h2><p>Both robots at the end of the round.</p></div>' +
+        '<span class="chip">' + iconoSVG("flag") + ' Exit</span></div>' +
+        '<div id="tableroResultado"></div>' +
+        '<div class="maze-legend">' +
+        '<span class="legend-item"><span class="legend-swatch" style="background:linear-gradient(135deg,#2563eb,#60a5fa);"></span>You</span>' +
+        '<span class="legend-item"><span class="legend-swatch" style="background:linear-gradient(135deg,#e11d48,#fb7185);"></span>Rival</span>' +
+        '<span class="legend-item"><span class="legend-swatch" style="background:linear-gradient(135deg,#059669,#34d399);"></span>Exit</span>' +
+        '</div>' +
+        '</section></div></div>';
+
     $("#contenido").html(html);
 
     let pasos = resultado.pasos || [];
@@ -540,7 +751,13 @@ JuegoWeb.prototype.mostrarResultado = function(resultado){
         }));
     };
     if (pasos.length === 0){
-        return dibujar({ posiciones: [resultado.posicionesFinales[jugadores[0]], resultado.posicionesFinales[jugadores[1]]] });
+        let finales = resultado.posicionesFinales || {};
+        return dibujar({
+            posiciones: [
+                finales[jugadores[0]] || nivel.inicios[0],
+                finales[jugadores[1]] || nivel.inicios[1]
+            ]
+        });
     }
     dibujar(pasos[0]);
     this.animacion = setInterval(function(){
@@ -573,9 +790,7 @@ JuegoWeb.prototype.renderizarLaberinto = function(nivel, opciones){
     let robotEn = function(celda){
         return robots.find(function(robot){ return igual(robot.pos, celda); }) || null;
     };
-    let tam = Math.max(14, Math.min(32, Math.floor((370 - (nivel.columnas - 1) * 2) / nivel.columnas)));
-    let estiloCelda = 'width:' + tam + 'px;height:' + tam + 'px;line-height:' + tam + 'px;font-size:' + Math.max(10, Math.round(tam * 0.55)) + 'px;';
-    let html = '<div class="maze-grid" style="grid-template-columns:repeat(' + nivel.columnas + ',' + tam + 'px);">';
+    let html = '<div class="maze-grid" role="img" aria-label="Maze" style="grid-template-columns:repeat(' + nivel.columnas + ', minmax(0, 1fr));">';
     for (let r = 0; r < nivel.mapa.length; r++){
         for (let c = 0; c < nivel.mapa[r].length; c++){
             let celda = [r, c];
@@ -604,7 +819,7 @@ JuegoWeb.prototype.renderizarLaberinto = function(nivel, opciones){
             }
             if (igual(celda, opciones.actual)){ cls += " maze-current"; }
             if (robot){ cls += robot.indice === 0 ? " maze-p1" : " maze-p2"; simbolo = robot.indice === 0 ? "1" : "2"; }
-            html += '<div class="' + cls + '" style="' + estiloCelda + '">' + simbolo + '</div>';
+            html += '<div class="' + cls + '">' + simbolo + '</div>';
         }
     }
     return html + '</div>';
@@ -616,9 +831,10 @@ JuegoWeb.prototype.textoIdentidad = function(){
     let color = indice === 0 ? "blue" : "red";
     let rival = indice === 0 ? "red" : "blue";
     let esquina = indice === 0 ? "top-left" : "bottom-right";
-    return '<span style="color:' + color + ';font-weight:bold;">You are Player ' + (indice + 1) + ' (' + color + ').</span> ' +
-        'Your robot starts in the ' + esquina + ' corner, on the ' + color + ' square. ' +
-        'The ' + rival + ' square is your opponent\'s start and is not shown.';
+    return '<span class="identity-icon">' + iconoSVG("robot") + '</span>' +
+        '<div><strong>You are Player ' + (indice + 1) + ' · ' + (indice === 0 ? "Blue" : "Red") + '</strong>' +
+        '<span>Your robot starts in the ' + esquina + ' corner, on the ' + color + ' square. ' +
+        'The ' + rival + ' square is your opponent\'s start and is not shown on the board.</span></div>';
 };
 
 // --- Socket ---

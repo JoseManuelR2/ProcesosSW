@@ -53,14 +53,14 @@ function nombreNivel(nivel){
 
 function leyendaTablero(){
     return '<div class="maze-legend">' +
-        '<span class="legend-item"><span class="legend-swatch" style="background:linear-gradient(135deg,#2563eb,#60a5fa);"></span>You</span>' +
-        '<span class="legend-item"><span class="legend-swatch" style="background:linear-gradient(135deg,#e11d48,#fb7185);"></span>Rival</span>' +
-        '<span class="legend-item"><span class="legend-swatch" style="background:linear-gradient(135deg,#059669,#34d399);"></span>Exit</span>' +
-        '<span class="legend-item"><span class="legend-swatch" style="background:#070c16;box-shadow:inset 0 0 0 1px rgba(148,163,184,.4);"></span>Wall</span>' +
-        '<span class="legend-item"><span class="legend-swatch" style="background:linear-gradient(135deg,#0e7490,#22d3ee);"></span>Ice</span>' +
-        '<span class="legend-item"><span class="legend-swatch" style="background:linear-gradient(135deg,#b45309,#f59e0b);"></span>Trap</span>' +
-        '<span class="legend-item"><span class="legend-swatch" style="background:linear-gradient(135deg,#6d28d9,#a78bfa);"></span>Teleport</span>' +
-        '<span class="legend-item"><span class="legend-swatch" style="background:linear-gradient(135deg,#4d7c0f,#a3e635);"></span>Arrow</span>' +
+        '<span class="legend-item"><span class="legend-swatch" style="background:#2563eb;"></span>You</span>' +
+        '<span class="legend-item"><span class="legend-swatch" style="background:#dc2626;"></span>Rival</span>' +
+        '<span class="legend-item"><span class="legend-swatch" style="background:#059669;"></span>Exit</span>' +
+        '<span class="legend-item"><span class="legend-swatch" style="background:#101827;"></span>Wall</span>' +
+        '<span class="legend-item"><span class="legend-swatch" style="background:#dbeafe;"></span>Ice</span>' +
+        '<span class="legend-item"><span class="legend-swatch" style="background:#fee2e2;"></span>Trap</span>' +
+        '<span class="legend-item"><span class="legend-swatch" style="background:#ede9fe;"></span>Teleport</span>' +
+        '<span class="legend-item"><span class="legend-swatch" style="background:#dcfce7;"></span>Arrow</span>' +
         '</div>';
 }
 
@@ -202,11 +202,11 @@ JuegoWeb.prototype.mostrarLobby = function(){
     }).join("");
 
     let html = '<div class="lobby">' +
-        '<header class="lobby-hero">' +
+        '<header class="page-head lobby-head">' +
         '<div>' +
         '<span class="eyebrow">' + iconoSVG("gamepad") + ' Maze Duel · 1 vs 1</span>' +
-        '<h1>Program your robot.<br><span class="gradient-text">Win the race.</span></h1>' +
-        '<p>Build a route with blocks and reach the exit before your rival.</p>' +
+        '<h1>Game lobby</h1>' +
+        '<p>Create a room or join an open game.</p>' +
         '</div></header>' +
 
         '<div class="lobby-grid">' +
@@ -340,7 +340,7 @@ JuegoWeb.prototype.abrirEditor = function(partida){
         '<section class="panel">' +
         '<div class="panel-head"><h2>Blocks</h2><span class="chip" id="contadorBloques">0 / ' + L.LIMITES.bloques + '</span></div>' +
         '<div id="paleta" class="palette">' + paleta + '</div>' +
-        '<p class="palette-tip">Drag a block into the program or click it to append. Nest blocks inside repeat, while and if/else.</p>' +
+        '<p class="palette-tip">Drag or click a block to add it. Use repeat, while and if/else to nest blocks.</p>' +
         '</section>' +
 
         '<section class="panel">' +
@@ -373,8 +373,8 @@ JuegoWeb.prototype.actualizarEstadoEditor = function(){
     if (!p || this.vista !== "editor"){ return; }
     let esperando = p.estado === "esperando";
     $("#estadoPartida").html(iconoSVG(esperando ? "clock" : "info") + ' ' + (esperando
-        ? "Waiting for an opponent… If nobody joins within 30 seconds, a bot takes the second slot."
-        : "Program your robot and send it. The round ends when both programs are in, or when the 15 s timer runs out."));
+        ? "Waiting for an opponent… A bot will join in 30 s."
+        : "Send your program when ready. The round ends when both players send theirs."));
     $("#btnEnviar").prop("disabled", p.estado !== "programando");
 };
 
@@ -800,8 +800,7 @@ JuegoWeb.prototype.textoIdentidad = function(){
     let esquina = indice === 0 ? "top-left" : "bottom-right";
     return '<span class="identity-icon">' + iconoSVG("robot") + '</span>' +
         '<div><strong>You are Player ' + (indice + 1) + ' · ' + (indice === 0 ? "Blue" : "Red") + '</strong>' +
-        '<span>Your robot starts in the ' + esquina + ' corner, on the ' + color + ' square. ' +
-        'The ' + rival + ' square is your opponent\'s start and is not shown on the board.</span></div>';
+        '<span>Start: ' + esquina + ' (' + color + '). Rival start: ' + rival + ', hidden.</span></div>';
 };
 
 // --- Socket ---

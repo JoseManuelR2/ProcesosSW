@@ -107,25 +107,12 @@ function ControlWeb(){
         }).join("");
         return '<div class="auth-layout">' +
             '<section class="auth-hero">' +
-            '<span class="hero-badge">' + UI.icono("sparkles") + ' ProcesosSW · Sprints 1 y 2</span>' +
+            '<span class="eyebrow">' + UI.icono("route") + ' ProcesosSW</span>' +
             '<h1>' + opciones.titulo + '</h1>' +
             '<p class="hero-lead">' + opciones.texto + '</p>' +
             '<ul class="hero-list">' + puntos + '</ul>' +
-            '<div class="hero-meta">' +
-            '<div><strong>120</strong><span>pruebas unitarias</span></div>' +
-            '<div><strong>4</strong><span>pruebas e2e</span></div>' +
-            '<div><strong>4 capas</strong><span>arquitectura</span></div>' +
-            '<div><strong>CI/CD</strong><span>Cloud Run</span></div>' +
-            '</div>' +
-            '<div class="hero-visual">' +
-            '<div class="hero-visual-bar"><span class="traffic red"></span><span class="traffic amber"></span><span class="traffic green"></span>' +
-            '<span class="hero-visual-title">' + UI.icono("gamepad") + 'maze_duel.exe</span></div>' +
-            UI.miniLaberinto() +
-            '<div class="hero-visual-foot"><span>' + UI.icono("clock") + '15s / turno</span><span>' + UI.icono("zap") + 'Socket.IO</span></div>' +
-            '</div>' +
             '</section>' +
             '<section class="auth-panel">' + opciones.contenido +
-            '<p class="auth-legal">Tus datos viajan por HTTPS. La contraseña se guarda con bcrypt y la sesión usa una cookie HttpOnly.</p>' +
             '</section>' +
             '</div>';
     };
@@ -180,32 +167,19 @@ function ControlWeb(){
         let nombre = String(this.usuario.email).split("@")[0];
         nombre = nombre.charAt(0).toUpperCase() + nombre.slice(1);
 
-        let stat = function(icono, etiqueta, valor, pista){
-            return '<div class="stat-card"><div class="stat-top"><span class="stat-label">' + etiqueta + '</span>' +
-                '<span class="stat-icon">' + UI.icono(icono) + '</span></div>' +
-                '<div><div class="stat-value">' + valor + '</div><div class="stat-hint">' + pista + '</div></div></div>';
-        };
-
         let html = '<div class="dashboard">' +
             '<header class="page-head"><div>' +
             '<span class="eyebrow">' + UI.icono("grid") + ' Panel de control</span>' +
-            '<h1>Hola, <span class="gradient-text">' + this.escapar(nombre) + '</span></h1>' +
-            '<p>Tu sesión está activa. Desde aquí puedes entrar a Maze Duel, revisar tu cuenta' +
-            (esAdmin ? ' y administrar los usuarios del sistema.' : ' y comprobar tus permisos.') + '</p>' +
+            '<h1>Hola, ' + this.escapar(nombre) + '</h1>' +
+            '<p>' + this.escapar(this.usuario.email) + ' · ' + this.escapar(this.usuario.rol) + '</p>' +
             '</div><div class="page-head-actions">' +
-            '<span class="status-live"><span class="status-dot"></span> Sesión activa</span>' +
             '<button type="button" class="btn btn-ghost-danger btn-sm" id="homeEliminar">' + UI.icono("trash") + ' Eliminar cuenta</button>' +
             '</div></header>' +
-            '<div class="stat-grid">' +
-            stat("shield", "Rol", this.escapar(this.usuario.rol), esAdmin ? "Permisos completos de administración" : "Acceso a Maze Duel y a tu cuenta") +
-            stat("mail", "Cuenta", this.escapar(this.usuario.email), "Confirmada y protegida con bcrypt") +
-            stat("gamepad", "Maze Duel", "Listo para jugar", "Partidas en tiempo real con Socket.IO") +
-            '</div>' +
             '<div class="feature-grid">' +
             '<article class="feature-card feature-card-game">' +
             '<span class="feature-icon">' + UI.icono("gamepad") + '</span>' +
             '<h3>Maze Duel</h3>' +
-            '<p>Programa tu robot con bloques, compite contra otro jugador o contra el bot y llega antes a la salida.</p>' +
+            '<p>Programa tu robot y llega a la salida antes que tu rival.</p>' +
             '<button type="button" id="homeJuego" class="btn btn-primary">Entrar al lobby ' + UI.icono("arrow-right") + '</button>' +
             '</article>';
 
@@ -213,37 +187,31 @@ function ControlWeb(){
             html += '<article class="feature-card">' +
                 '<span class="feature-icon">' + UI.icono("users") + '</span>' +
                 '<h3>Usuarios</h3>' +
-                '<p>Consulta los correos, roles y estados de todas las cuentas registradas en la aplicación.</p>' +
+                '<p>Consulta y filtra las cuentas registradas.</p>' +
                 '<button type="button" id="homeUsuarios" class="btn btn-secondary">Ver usuarios ' + UI.icono("arrow-right") + '</button>' +
                 '</article>' +
                 '<article class="feature-card">' +
                 '<span class="feature-icon">' + UI.icono("activity") + '</span>' +
                 '<h3>Estado de cuenta</h3>' +
-                '<p>Comprueba al instante si un usuario sigue activo antes de tomar cualquier decisión.</p>' +
+                '<p>Comprueba si una cuenta sigue activa.</p>' +
                 '<button type="button" id="homeActivo" class="btn btn-secondary">Comprobar ' + UI.icono("arrow-right") + '</button>' +
                 '</article>';
         } else {
             html += '<article class="feature-card">' +
                 '<span class="feature-icon">' + UI.icono("shield") + '</span>' +
-                '<h3>Seguridad</h3>' +
-                '<p>Contraseña con bcrypt, sesión con cookie HttpOnly, límite de intentos y rutas protegidas en el servidor.</p>' +
+                '<h3>Cuenta</h3>' +
+                '<p>Gestiona el acceso y la seguridad de tu cuenta.</p>' +
                 '<button type="button" id="homeEliminar2" class="btn btn-secondary">Gestionar cuenta ' + UI.icono("arrow-right") + '</button>' +
                 '</article>' +
                 '<article class="feature-card">' +
                 '<span class="feature-icon">' + UI.icono("sparkles") + '</span>' +
-                '<h3>Google One Tap</h3>' +
-                '<p>Puedes volver a entrar con tu cuenta de Google sin escribir la contraseña. El botón de Google sigue disponible.</p>' +
+                '<h3>Sesión</h3>' +
+                '<p>Cierra la sesión cuando termines.</p>' +
                 '<button type="button" id="homeSalir" class="btn btn-secondary">Cerrar sesión ' + UI.icono("logout") + '</button>' +
                 '</article>';
         }
 
-        html += '</div>' +
-            '<div class="info-strip">' +
-            '<span class="info-chip">' + UI.icono("shield") + ' OAuth 2.0 + Google One Tap</span>' +
-            '<span class="info-chip">' + UI.icono("lock") + ' bcrypt + sesión HttpOnly</span>' +
-            '<span class="info-chip">' + UI.icono("gamepad") + ' Maze Duel con Socket.IO</span>' +
-            '<span class="info-chip">' + UI.icono("check") + ' CI/CD en Cloud Run</span>' +
-            '</div></div>';
+        html += '</div></div>';
 
         $("#contenido").html(html);
 
@@ -289,8 +257,7 @@ function ControlWeb(){
             texto: 'Una aplicación en capas con OAuth 2.0, Google One Tap, confirmación por correo y un juego multijugador en tiempo real.',
             puntos: [
                 { icono: "shield", texto: "Autenticación local y con Google sobre la misma sesión segura." },
-                { icono: "gamepad", texto: "Maze Duel: programa robots con bloques y compite en vivo." },
-                { icono: "check", texto: "120 pruebas unitarias, 4 e2e y despliegue continuo en Cloud Run." }
+                { icono: "gamepad", texto: "Maze Duel: programa robots con bloques y compite en vivo." }
             ],
             contenido: contenido
         }));

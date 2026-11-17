@@ -156,39 +156,37 @@ function ControlWeb(){
 
         let html = '<div class="dashboard">' +
             '<header class="page-head"><div>' +
-            '<span class="eyebrow">' + UI.icono("grid") + ' Panel de control</span>' +
-            '<h1>Hola, ' + this.escapar(nombre) + '</h1>' +
-            '<p>' + this.escapar(this.usuario.email) + ' · ' + this.escapar(this.usuario.rol) + '</p>' +
+            '<h1>Panel</h1>' +
             '</div><div class="page-head-actions">' +
             '<button type="button" class="btn btn-ghost-danger btn-sm" id="homeEliminar">' + UI.icono("trash") + ' Eliminar cuenta</button>' +
             '</div></header>' +
             '<div class="dashboard-actions">' +
             '<article class="action-row action-row-primary">' +
             '<span class="action-icon">' + UI.icono("gamepad") + '</span>' +
-            '<div class="action-copy"><h3>Maze Duel</h3><p>Programa tu robot y llega a la salida antes que tu rival.</p></div>' +
+            '<div class="action-copy"><h3>Maze Duel</h3></div>' +
             '<button type="button" id="homeJuego" class="btn btn-primary">Entrar al lobby ' + UI.icono("arrow-right") + '</button>' +
             '</article>';
 
         if (esAdmin){
             html += '<article class="action-row">' +
                 '<span class="action-icon">' + UI.icono("users") + '</span>' +
-                '<div class="action-copy"><h3>Usuarios</h3><p>Consulta y filtra las cuentas registradas.</p></div>' +
+                '<div class="action-copy"><h3>Usuarios</h3></div>' +
                 '<button type="button" id="homeUsuarios" class="btn btn-secondary">Ver usuarios ' + UI.icono("arrow-right") + '</button>' +
                 '</article>' +
                 '<article class="action-row">' +
                 '<span class="action-icon">' + UI.icono("activity") + '</span>' +
-                '<div class="action-copy"><h3>Estado de cuenta</h3><p>Comprueba si una cuenta sigue activa.</p></div>' +
+                '<div class="action-copy"><h3>Estado de cuenta</h3></div>' +
                 '<button type="button" id="homeActivo" class="btn btn-secondary">Comprobar ' + UI.icono("arrow-right") + '</button>' +
                 '</article>';
         } else {
             html += '<article class="action-row">' +
                 '<span class="action-icon">' + UI.icono("shield") + '</span>' +
-                '<div class="action-copy"><h3>Cuenta</h3><p>Gestiona el acceso y la seguridad de tu cuenta.</p></div>' +
+                '<div class="action-copy"><h3>Cuenta</h3></div>' +
                 '<button type="button" id="homeEliminar2" class="btn btn-secondary">Gestionar cuenta ' + UI.icono("arrow-right") + '</button>' +
                 '</article>' +
                 '<article class="action-row">' +
                 '<span class="action-icon">' + UI.icono("sparkles") + '</span>' +
-                '<div class="action-copy"><h3>Sesión</h3><p>Cierra la sesión cuando termines.</p></div>' +
+                '<div class="action-copy"><h3>Sesión</h3></div>' +
                 '<button type="button" id="homeSalir" class="btn btn-secondary">Cerrar sesión ' + UI.icono("logout") + '</button>' +
                 '</article>';
         }
@@ -217,7 +215,7 @@ function ControlWeb(){
 
         let contenido = '<div class="auth-card">' +
             '<div class="auth-card-head"><span class="auth-icon">' + UI.icono("lock") + '</span>' +
-            '<div><h2>Iniciar sesión</h2><p>Accede a tu panel y a Maze Duel.</p></div></div>' +
+            '<div><h2>Iniciar sesión</h2></div></div>' +
             '<form id="formLogin" class="auth-form">' +
             '<div class="field"><label for="email">Email</label>' +
             '<div class="field-control"><span class="field-icon">' + UI.icono("mail") + '</span>' +
@@ -321,7 +319,7 @@ function ControlWeb(){
 
         let contenido = '<div class="auth-card">' +
             '<div class="auth-card-head"><span class="auth-icon">' + UI.icono("sparkles") + '</span>' +
-            '<div><h2>Crear cuenta</h2><p>Empieza en menos de un minuto.</p></div></div>' +
+            '<div><h2>Crear cuenta</h2></div></div>' +
             '<form id="formRegistro" class="auth-form">' +
             '<div class="field"><label for="email">Email</label>' +
             '<div class="field-control"><span class="field-icon">' + UI.icono("mail") + '</span>' +

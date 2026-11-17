@@ -6,24 +6,24 @@
    ============================================================ */
 
 :root {
-    --bg: #0a0e15;
-    --bg-soft: #0e1420;
-    --surface: #111823;
-    --surface-solid: #131b28;
-    --surface-2: rgba(255, 255, 255, .03);
-    --border: #202b3c;
-    --border-strong: #2e3b50;
-    --text: #e8edf5;
-    --muted: #9aa7ba;
-    --muted-2: #6f7d92;
-    --primary: #4f6bed;
-    --primary-2: #4f6bed;
-    --cyan: #7d9bff;
-    --green: #34d399;
-    --amber: #fbbf24;
-    --red: #f87171;
-    --radius: 14px;
-    --radius-sm: 10px;
+    --bg: #f2f4f7;
+    --bg-soft: #eef1f6;
+    --surface: #ffffff;
+    --surface-solid: #ffffff;
+    --surface-2: #f1f5f9;
+    --border: #d1d5db;
+    --border-strong: #94a3b8;
+    --text: #111827;
+    --muted: #64748b;
+    --muted-2: #94a3b8;
+    --primary: #111827;
+    --primary-2: #111827;
+    --cyan: #2563eb;
+    --green: #16a34a;
+    --amber: #d97706;
+    --red: #dc2626;
+    --radius: 4px;
+    --radius-sm: 4px;
     --shadow: none;
     --shadow-soft: none;
 }
@@ -37,7 +37,7 @@ body {
     min-height: 100vh;
     color: var(--text);
     background: var(--bg);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-family: "SF Mono", SFMono-Regular, ui-monospace, Menlo, Consolas, "Liberation Mono", monospace;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
 }
@@ -1685,3 +1685,150 @@ label { color: #aebad0; font-size: .72rem; font-weight: 700; letter-spacing: .05
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+/* ------------------------------------------------------------
+   Tema claro, terminal
+   ------------------------------------------------------------ */
+
+body { background: var(--bg); color: var(--text); }
+
+#barra.app-nav { background: rgba(255, 255, 255, .94); border-bottom-color: var(--border); }
+.brand-mark { background: var(--primary); color: #fff; }
+.brand-name span { color: inherit; }
+#barra .navbar-nav .nav-link { color: var(--muted); }
+#barra .navbar-nav .nav-link:hover,
+#barra .navbar-nav .nav-link.active { color: var(--text); background: var(--surface-2); }
+.nav-user-email { color: var(--text); }
+.navbar-collapse { background: var(--surface); }
+#barra .navbar-toggler { border-color: var(--border-strong); }
+
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary:hover,
+.btn-primary:focus { background: #000; color: #fff; }
+.btn-secondary { background: var(--surface); border-color: var(--border-strong); color: var(--text); }
+.btn-secondary:hover,
+.btn-secondary:focus { background: var(--surface-2); border-color: var(--border-strong); color: var(--text); }
+.btn-success { background: var(--green); color: #fff; }
+.btn-success:hover,
+.btn-success:focus { background: #15803d; color: #fff; }
+.btn-danger { background: var(--red); color: #fff; }
+.btn-danger:hover,
+.btn-danger:focus { background: #b91c1c; color: #fff; }
+.btn-info { background: var(--cyan); color: #fff; }
+.btn-info:hover,
+.btn-info:focus { background: #1d4ed8; color: #fff; }
+.btn-google { background: var(--surface); color: var(--text); border-color: var(--border-strong); box-shadow: none; }
+.btn-google:hover,
+.btn-google:focus { background: var(--surface-2); color: var(--text); }
+
+.form-control { background: var(--surface); border-color: var(--border); color: var(--text); }
+.form-control:focus { background: var(--surface); border-color: var(--primary); box-shadow: 0 0 0 3px rgba(17, 24, 39, .08); }
+.form-control::placeholder { color: var(--muted-2); }
+select.form-control option { color: var(--text); background: var(--surface); }
+label { color: var(--muted); }
+
+.panel,
+.auth-card,
+.action-row,
+.game-card,
+.score-row,
+.result-hero,
+.identity-banner,
+.map-preview,
+.result-box,
+.danger-note,
+.confirm-step-number {
+    background: var(--surface);
+    border-color: var(--border);
+    color: var(--text);
+    box-shadow: none;
+}
+
+.auth-card { backdrop-filter: none; -webkit-backdrop-filter: none; }
+.workspace { background: var(--surface-2); border-color: var(--border-strong); }
+.workspace:hover { border-color: var(--border-strong); }
+.workspace.drop-zone-activa { border-color: var(--primary); background: rgba(17, 24, 39, .05); }
+.palette-tip { border-top-color: var(--border); color: var(--muted); }
+
+.chip,
+.role-chip,
+.status-pill,
+.count-pill,
+.player-chip {
+    background: var(--surface-2);
+    border-color: var(--border);
+    color: var(--muted);
+}
+
+.game-meta,
+.game-meta strong,
+.score-main strong,
+.empty-state strong,
+.user-cell strong,
+.app-footer,
+.nav-user-role {
+    color: var(--text);
+}
+
+.game-meta { color: var(--muted); }
+.score-main span,
+.score-moves,
+.empty-state,
+.empty-state span,
+.user-cell small,
+.user-cell span {
+    color: var(--muted);
+}
+
+.eyebrow { color: var(--muted); }
+.status-live { background: rgba(22, 163, 74, .08); border-color: rgba(22, 163, 74, .25); color: var(--green); }
+.status-dot { background: var(--green); box-shadow: none; animation: none; }
+.map-preview { background: var(--surface-2); }
+.map-preview-icon { background: rgba(37, 99, 235, .08); color: var(--cyan); }
+.game-card:hover { background: var(--surface); border-color: var(--border-strong); }
+.identity-blue,
+.identity-red { background: var(--surface); }
+.identity-blue .identity-icon { background: rgba(37, 99, 235, .08); color: var(--cyan); }
+.identity-red .identity-icon { background: rgba(220, 38, 38, .08); color: var(--red); }
+.block { box-shadow: none; }
+.block-palette { box-shadow: none; }
+.block-palette:hover { transform: none; filter: brightness(.96); }
+.workspace-empty .icon,
+.empty-state .icon { color: var(--muted-2); }
+.workspace-empty strong { color: var(--text); }
+.result-icon { background: var(--surface-2); border-color: var(--border); color: var(--text); }
+.result-win .result-icon { background: rgba(22, 163, 74, .08); border-color: rgba(22, 163, 74, .25); color: var(--green); }
+.result-lose .result-icon { background: rgba(220, 38, 38, .08); border-color: rgba(220, 38, 38, .25); color: var(--red); }
+.result-draw .result-icon { background: rgba(217, 119, 6, .08); border-color: rgba(217, 119, 6, .25); color: var(--amber); }
+.score-row { background: var(--surface-2); }
+.score-row.winner { background: rgba(22, 163, 74, .06); border-color: rgba(22, 163, 74, .25); }
+.confirm-step-number { background: rgba(17, 24, 39, .06); color: var(--text); }
+.confirm-illustration { background: rgba(37, 99, 235, .06); border-color: rgba(37, 99, 235, .2); color: var(--cyan); }
+.auth-icon { background: rgba(17, 24, 39, .06); border-color: var(--border); color: var(--text); }
+.danger-note { background: rgba(220, 38, 38, .06); color: var(--red); border-color: rgba(220, 38, 38, .2); }
+.danger-zone { border-color: rgba(220, 38, 38, .25); }
+.danger-zone .panel-head h2 { color: var(--red); }
+.link-button { color: var(--cyan); }
+.link-button:hover { color: #1d4ed8; }
+
+/* Tablero claro */
+.maze-grid {
+    background: #f8fafc;
+    border: 1px solid #94a3b8;
+}
+.maze-cell {
+    background: #f8fafc;
+    color: #334155;
+    box-shadow: inset -1px -1px 0 rgba(15, 23, 42, .08);
+}
+.maze-wall { background: #111827; }
+.maze-start { box-shadow: inset 0 0 0 2px #2563eb; }
+.maze-start2 { box-shadow: inset 0 0 0 2px #dc2626; }
+.maze-current { box-shadow: inset 0 0 0 3px #d97706; }
+.legend-swatch { box-shadow: inset 0 0 0 1px rgba(15, 23, 42, .15); }
+
+#mensaje { background: var(--surface); border-color: var(--border); color: var(--text); }
+.app-alert-success { background: #ecfdf5; border-color: rgba(22, 163, 74, .25); color: #166534; }
+.app-alert-danger { background: #fef2f2; border-color: rgba(220, 38, 38, .25); color: #991b1b; }
+.app-alert-warning { background: #fffbeb; border-color: rgba(217, 119, 6, .25); color: #92400e; }
+.app-alert-info { background: #eff6ff; border-color: rgba(37, 99, 235, .25); color: #1e40af; }

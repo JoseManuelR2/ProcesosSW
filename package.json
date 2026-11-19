@@ -9,7 +9,9 @@
   "scripts": {
     "start": "node index.js",
     "test": "jasmine",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "okf-check": "python3 scripts/ai/okf_check.py",
+    "okf-map": "python3 scripts/ai/okf_map.py"
   },
   "repository": {
     "type": "git",
